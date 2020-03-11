@@ -1,0 +1,31 @@
+# Copyright (c) 2017 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+
+config CAVS_ADSP_COMMON
+	bool "Common Shared logic for CAVS IP"
+	default n
+
+config CAVS_VERSION_1_5
+	bool "Support for Intel ADSP CAVS IP version 1.5"
+	default n
+	help
+	  Supports Skylake, Kabylake, Apollolake and Geminilake audio DSP hardware
+
+config CAVS_VERSION_1_8
+	bool "Support for Intel ADSP CAVS IP version 1.8"
+	default n
+	help
+	  Supports Cannonlake, Icelake, and Sue Creek audio DSP hardware
+
+config CAVS_VERSION_2_0
+	bool "Support for Intel ADSP CAVS IP version 2.0"
+	default n
+	help
+	  Supports Cometlake, Jasperlake audio DSP hardware
+
+config CAVS_VERSION_2_5
+	bool "Support for Intel ADSP CAVS IP version 2.5"
+	default n
+    help
+	  Supports Tigerlake audio DSP hardware

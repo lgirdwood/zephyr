@@ -9,6 +9,12 @@ config SOC
 	string
 	default "intel_apl_adsp"
 
+config CAVS_ADSP_COMMON
+	default y
+
+config CAVS_VERSION_1_5
+	default y
+
 config IRQ_OFFLOAD_INTNUM
 	default 0
 

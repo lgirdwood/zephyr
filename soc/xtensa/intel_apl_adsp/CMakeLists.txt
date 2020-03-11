@@ -9,3 +9,5 @@ zephyr_library_sources(main_entry.S)
 
 set_source_files_properties(power_down.S PROPERTIES COMPILE_FLAGS -DASSEMBLY)
 zephyr_library_sources(power_down.S)
+
+add_subdirectory(${ZEPHYR_BASE}/soc/xtensa/intel_adsp_common/ ${CMAKE_BINARY_DIR}/zephyr/soc/xtensa/intel_adsp_common)
