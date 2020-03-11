@@ -118,6 +118,8 @@ manifest:
     - name: edtt
       path: tools/edtt
       revision: 5fb6617815c7909f01988d10d6bc4789253f31f6
+    - name: hal_intel_adsp
+      path: modules/hal/intel_adsp
 
   self:
     path: zephyr

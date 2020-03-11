@@ -1,0 +1,13 @@
+# Copyright (c) 2020 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+config INTEL_ADSP_HAL
+	bool
+	help
+	  Build the Intel ADSP HAL module during build process.
+	  This is selected by any Intel ADSP board kconfig automatically.
+
+config INTEL_ADSP_HAL_CAVS
+	bool
+	help
+		Intel CAVS support
