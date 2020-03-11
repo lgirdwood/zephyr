@@ -33,6 +33,7 @@ target_include_directories(bootloader PUBLIC
   ${TOOLCHAIN_INCLUDES}
   ${SOC_DIR}/${ARCH}/${SOC_PATH}/
   ${SOC_DIR}/${ARCH}/${SOC_PATH}/include
+  ${SOC_DIR}/${ARCH}/intel_adsp_common/include
   )
 
 set_source_files_properties(boot_entry.S PROPERTIES COMPILE_FLAGS -DASSEMBLY)

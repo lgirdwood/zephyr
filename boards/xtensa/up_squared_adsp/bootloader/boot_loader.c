@@ -8,6 +8,7 @@
 
 #include <platform/platform.h>
 #include <platform/memory.h>
+#include <adsp/cache.h>
 #include <soc.h>
 #include "manifest.h"
 

@@ -8,6 +8,9 @@
 
 #include <sys/sys_io.h>
 
+/* need full relative path atm sine soc.h is globally included ?*/
+#include "../intel_adsp_common/include/adsp/cache.h"
+
 #include "memory.h"
 
 #ifndef __INC_SOC_H
@@ -216,11 +219,6 @@ struct soc_dsp_shim_regs {
 	u32_t	reserved3[22];
 };
 
-/* macros for data cache operations */
-#define SOC_DCACHE_FLUSH(addr, size)		\
-	xthal_dcache_region_writeback((addr), (size))
-#define SOC_DCACHE_INVALIDATE(addr, size)	\
-	xthal_dcache_region_invalidate((addr), (size))
 
 extern void z_soc_irq_enable(u32_t irq);
 extern void z_soc_irq_disable(u32_t irq);
