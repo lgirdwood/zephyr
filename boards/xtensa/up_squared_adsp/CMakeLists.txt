@@ -13,6 +13,7 @@ if(EXISTS ${BOARD_DIR}/bootloader/CMakeLists.txt)
 endif()
 
 set(sof_module ${PROJECT_SOURCE_DIR}/../modules/audio/sof)
+target_link_libraries(bootloader PRIVATE sof_module)
 
 add_custom_target(
   process_elf ALL

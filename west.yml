@@ -118,6 +118,9 @@ manifest:
     - name: edtt
       path: tools/edtt
       revision: 5fb6617815c7909f01988d10d6bc4789253f31f6
+    - name: sof
+      revision: e4b57e2b3961659d10eaa5f33654cf49d9a9a852
+      path: modules/audio/sof
 
   self:
     path: zephyr
