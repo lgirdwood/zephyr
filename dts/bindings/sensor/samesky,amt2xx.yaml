@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: AMT2xx Digital Position Sensor with SPI Interface.
+
+compatible: "samesky,amt2xx"
+
+include: [sensor-device.yaml, spi-device.yaml]
+
+properties:
+
+  cs-gpios:
+    type: phandle-array
+    description:
+      Driver controlled CS output.
+

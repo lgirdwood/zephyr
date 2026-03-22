@@ -1,0 +1,13 @@
+# AMT2XX temperature sensor config
+
+# SPDX-License-Identifier: Apache-2.0
+
+config AMT2XX
+	bool "AMT2xx Position Sensor"
+	default y
+	depends on DT_HAS_SAMESKY_AMT2XX_ENABLED
+	select SPI
+	help
+	  Enable the driver for the AMT2xx position Sensor with SPI
+	  interface.
+
