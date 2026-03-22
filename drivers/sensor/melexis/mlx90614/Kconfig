@@ -1,0 +1,13 @@
+# MLX90614 temperature sensor config
+
+# SPDX-License-Identifier: Apache-2.0
+
+config MLX90614
+	bool "MLX90614 Temperature Sensor"
+	default y
+	depends on DT_HAS_MELEXIS_MLX90614_ENABLED
+	select I2C
+	help
+	  Enable the driver for the MLX90614 digital temperature Sensor with 2-wire
+	  interface.
+

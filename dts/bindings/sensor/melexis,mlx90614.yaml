@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+description: MLX90614 Digital Temperature Sensor with 2-Wire Interface.
+
+compatible: "melexis,mlx90614"
+
+include: [sensor-device.yaml, i2c-device.yaml]
+
