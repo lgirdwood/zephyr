@@ -91,6 +91,10 @@ enum sensor_channel {
 	SENSOR_CHAN_DIE_TEMP,
 	/** Ambient temperature in degrees Celsius. */
 	SENSOR_CHAN_AMBIENT_TEMP,
+	/** Object1 temperature in degrees Celsius. */
+	SENSOR_CHAN_OBJECT1_TEMP,
+	/** Object2 temperature in degrees Celsius. */
+	SENSOR_CHAN_OBJECT2_TEMP,
 	/** Pressure in kilopascal. */
 	SENSOR_CHAN_PRESS,
 	/**
