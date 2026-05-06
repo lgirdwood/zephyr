@@ -114,6 +114,7 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 				if ((IS_ALIGNED(ext->mem[mem_idx], region_align) ||
 				     ldr_parm->pre_located) &&
 				    ((mem_idx != LLEXT_MEM_TEXT) ||
+				     ldr_parm->pre_located ||
 				     INSTR_FETCHABLE(ext->mem[mem_idx], region_alloc))) {
 					/* Map this region directly to the ELF buffer */
 					llext_init_mem_part(ext, mem_idx,
@@ -124,6 +125,7 @@ static int llext_copy_region(struct llext_loader *ldr, struct llext *ext,
 				}
 
 				if ((mem_idx == LLEXT_MEM_TEXT) &&
+				    !ldr_parm->pre_located &&
 				    !INSTR_FETCHABLE(ext->mem[mem_idx], region_alloc)) {
 					LOG_WRN("Cannot reuse ELF buffer for region %d, not "
 						"instruction memory: %p-%p",

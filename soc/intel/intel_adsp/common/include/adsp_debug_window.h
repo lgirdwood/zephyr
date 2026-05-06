@@ -75,6 +75,7 @@
 #define ADSP_DW_SLOT_SHELL		0x73686c6c
 #define ADSP_DW_SLOT_DEBUG_STREAM	0x53523134
 #define ADSP_DW_SLOT_BROKEN		0x44414544
+#define ADSP_DW_SLOT_LLEXT_LOAD		0x4C454C44 /* shell llext_load rendezvous */
 
  /* for debug and critical types */
 #define ADSP_DW_SLOT_CORE_MASK		GENMASK(7, 0)
