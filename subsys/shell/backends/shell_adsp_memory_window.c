@@ -66,7 +66,7 @@ static int init(const struct shell_transport *transport,
 			ADSP_DW->descs[ADSP_DW_SLOT_NUM_SHELL].type);
 	}
 
-	ADSP_DW->descs[ADSP_DW_SLOT_NUM_SHELL].type = ADSP_DW->descs[ADSP_DW_SLOT_NUM_SHELL].type;
+	ADSP_DW->descs[ADSP_DW_SLOT_NUM_SHELL].type = ADSP_DW_SLOT_SHELL;
 
 	dw_slot = (struct adsp_debug_slot_shell *)ADSP_DW->slots[ADSP_DW_SLOT_NUM_SHELL];
 #endif
