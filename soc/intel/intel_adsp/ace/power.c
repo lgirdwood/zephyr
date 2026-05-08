@@ -183,6 +183,13 @@ static ALWAYS_INLINE void _restore_core_context(void)
 void dsp_restore_vector(void);
 void mp_resume_entry(void);
 
+#ifndef CONFIG_SMP
+bool soc_cpus_active[CONFIG_MP_MAX_NUM_CPUS];
+void mp_resume_entry(void)
+{
+}
+#endif
+
 void power_gate_entry(uint32_t core_id)
 {
 	xthal_window_spill();
