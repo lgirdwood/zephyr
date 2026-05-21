@@ -44,10 +44,14 @@ elseif("${ARCH}" STREQUAL "xtensa")
   # The target triple encodes the specific Xtensa core variant.
   set(XTENSA_CORE_ID $ENV{XTENSA_CORE_ID})
   if(NOT XTENSA_CORE_ID)
-    # Default to intel_ace30_ptl if not specified
-    set(XTENSA_CORE_ID "intel_ace30_ptl")
+    # Default to intel_ace30_adsp if not specified
+    set(XTENSA_CORE_ID "intel_ace30_adsp")
   endif()
-  set(triple xtensa-${XTENSA_CORE_ID}_zephyr-elf)
+  set(XTENSA_TOOLCHAIN_TARGET $ENV{XTENSA_TOOLCHAIN_TARGET})
+  if(NOT XTENSA_TOOLCHAIN_TARGET)
+    set(XTENSA_TOOLCHAIN_TARGET "intel_ace30_ptl")
+  endif()
+  set(triple xtensa-${XTENSA_TOOLCHAIN_TARGET}_zephyr-elf)
   set(XTENSA_CLANG_MCPU ${XTENSA_CORE_ID})
 
   # Use GCC assembler/linker from Zephyr SDK
@@ -55,7 +59,7 @@ elseif("${ARCH}" STREQUAL "xtensa")
   set(BINTOOLS gnu)
 
   # Configure cross-compile prefix for binutils (assembler, linker, objcopy, etc.)
-  set(CROSS_COMPILE_TARGET xtensa-${XTENSA_CORE_ID}_zephyr-elf)
+  set(CROSS_COMPILE_TARGET xtensa-${XTENSA_TOOLCHAIN_TARGET}_zephyr-elf)
   if(DEFINED ZEPHYR_SDK_INSTALL_DIR)
     set(CROSS_COMPILE $ENV{ZEPHYR_SDK_INSTALL_DIR}/gnu/${CROSS_COMPILE_TARGET}/bin/${CROSS_COMPILE_TARGET}-)
   endif()
