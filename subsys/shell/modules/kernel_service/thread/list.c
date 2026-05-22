@@ -96,15 +96,17 @@ static void shell_tdata_dump(const struct k_thread *cthread, void *user_data)
 		shell_print(sh,
 			    "Unable to determine unused stack size (%d)\n",
 			    ret);
-	} else if (size == 0U) {
-		/* Guard against a degenerate thread whose stack_info was
-		 * zero-initialised (e.g. dummy/SMP idle threads).  Dividing
-		 * by size=0 would raise an integer exception.
-		 */
-		shell_print(sh, "\tstack size unknown\n");
 	} else {
 		/* Calculate the real size reserved for the stack */
-		pcnt = ((size - unused) * 100U) / size;
+		if (size == 0L) {
+			/*
+			 * Guard against divide by 0 for threads from
+			 * hotplugged CPUs that may currently be OFF.
+			 */
+			pcnt = 0U;
+		} else {
+			pcnt = ((size - unused) * 100U) / size;
+		}
 
 		shell_print(sh,
 			    "\tstack size %zu, unused %zu, usage %zu / %zu (%u %%)\n",
