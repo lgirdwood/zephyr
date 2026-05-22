@@ -1076,11 +1076,10 @@ int z_impl_k_thread_stack_space_get(const struct k_thread *thread,
 	}
 #endif /* CONFIG_THREAD_STACK_MEM_MAPPED */
 
-	/* Dummy/idle threads (e.g. SMP secondary-CPU threads) are initialised
-	 * with stack_info.start = 0 and size = 0.  Passing a NULL start address
-	 * to z_stack_space_get() causes a LoadStore fault on Xtensa ADSP
-	 * (EXCCAUSE=13, EXCVADDR=0).  Return -EINVAL so callers print a
-	 * diagnostic instead of crashing the DSP.
+	/* 
+	 * Dummy/idle threads on hotplugged CPUs are initialised
+	 * with stack_info.start = 0 and size = 0. Guard against
+	 * trying to analyze those stacks with invalid parameters.
 	 */
 	if (thread->stack_info.start == 0U || thread->stack_info.size == 0U) {
 		return -EINVAL;

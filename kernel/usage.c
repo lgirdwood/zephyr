@@ -128,7 +128,7 @@ void z_sched_cpu_usage(uint8_t cpu_id, struct k_thread_runtime_stats *stats)
 	cpu = &_kernel.cpus[cpu_id];
 
 	if (cpu->usage == NULL || cpu->idle_thread == NULL) {
-		/* CPU not yet fully initialized (z_init_cpu not called) */
+		/* check thread from hotplugged CPUs may currently be OFF */
 		*stats = (struct k_thread_runtime_stats) {};
 		k_spin_unlock(&usage_lock, key);
 		return;
