@@ -127,6 +127,13 @@ void z_sched_cpu_usage(uint8_t cpu_id, struct k_thread_runtime_stats *stats)
 	key = k_spin_lock(&usage_lock);
 	cpu = &_kernel.cpus[cpu_id];
 
+	if (cpu->usage == NULL || cpu->idle_thread == NULL) {
+		/* CPU not yet fully initialized (z_init_cpu not called) */
+		*stats = (struct k_thread_runtime_stats) {};
+		k_spin_unlock(&usage_lock, key);
+		return;
+	}
+
 	if (cpu == _current_cpu) {
 		uint32_t  now = usage_now();
 		uint32_t cycles = now - cpu->usage0;
