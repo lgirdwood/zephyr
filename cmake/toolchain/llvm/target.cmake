@@ -42,15 +42,54 @@ elseif("${ARCH}" STREQUAL "riscv")
 elseif("${ARCH}" STREQUAL "xtensa")
   # Xtensa uses Clang for compilation with GCC assembler/linker from Zephyr SDK.
   # The target triple encodes the specific Xtensa core variant.
-  set(XTENSA_CORE_ID $ENV{XTENSA_CORE_ID})
-  if(NOT XTENSA_CORE_ID)
-    # Default to intel_ace30_adsp if not specified
-    set(XTENSA_CORE_ID "intel_ace30_adsp")
-  endif()
+  #
+  # Two names are involved per SoC:
+  #   * XTENSA_TOOLCHAIN_TARGET - Zephyr SDK toolchain target dir name
+  #                               (matches CONFIG_SOC_TOOLCHAIN_NAME),
+  #                               e.g. "intel_ace30_ptl".
+  #   * XTENSA_CORE_ID          - upstream LLVM Xtensa backend -mcpu name,
+  #                               typically "<vendor>_<id>_adsp",
+  #                               e.g. "intel_ace30_adsp".
+  #
+  # Both can be overridden via environment variables. If unset, they are
+  # derived from CONFIG_SOC_TOOLCHAIN_NAME and a small mapping table for
+  # the SoCs that ship with mismatched SDK/LLVM names.
+
   set(XTENSA_TOOLCHAIN_TARGET $ENV{XTENSA_TOOLCHAIN_TARGET})
   if(NOT XTENSA_TOOLCHAIN_TARGET)
-    set(XTENSA_TOOLCHAIN_TARGET "intel_ace30_ptl")
+    if(CONFIG_SOC_TOOLCHAIN_NAME)
+      set(XTENSA_TOOLCHAIN_TARGET "${CONFIG_SOC_TOOLCHAIN_NAME}")
+    else()
+      # Fallback for boards that don't set CONFIG_SOC_TOOLCHAIN_NAME yet.
+      set(XTENSA_TOOLCHAIN_TARGET "intel_ace30_ptl")
+    endif()
   endif()
+
+  set(XTENSA_CORE_ID $ENV{XTENSA_CORE_ID})
+  if(NOT XTENSA_CORE_ID)
+    # Map Zephyr SDK toolchain target -> upstream LLVM Xtensa -mcpu name.
+    # Only entries whose names differ between the SDK and LLVM are listed;
+    # anything not in this table is assumed to be identical in both.
+    set(_xtensa_sdk_to_llvm_cpu
+      # Intel ADSP
+      intel_ace15_mtpm   intel_ace15_adsp
+      intel_ace40        intel_ace40_adsp
+      intel_ace30_ptl    intel_ace30_adsp
+    )
+    list(FIND _xtensa_sdk_to_llvm_cpu "${XTENSA_TOOLCHAIN_TARGET}" _idx)
+    if(_idx GREATER -1)
+      math(EXPR _val_idx "${_idx} + 1")
+      list(GET _xtensa_sdk_to_llvm_cpu ${_val_idx} XTENSA_CORE_ID)
+    else()
+      # SDK target name matches the LLVM -mcpu name (true for most
+      # AMD/MTK/NXP ADSP cores and dc233c / sample_controller*).
+      set(XTENSA_CORE_ID "${XTENSA_TOOLCHAIN_TARGET}")
+    endif()
+    unset(_xtensa_sdk_to_llvm_cpu)
+    unset(_idx)
+    unset(_val_idx)
+  endif()
+
   set(triple xtensa-${XTENSA_TOOLCHAIN_TARGET}_zephyr-elf)
   set(XTENSA_CLANG_MCPU ${XTENSA_CORE_ID})
 
@@ -66,9 +105,14 @@ elseif("${ARCH}" STREQUAL "xtensa")
 
   # Clang-specific flags for Xtensa
   list(APPEND TOOLCHAIN_C_FLAGS -mcpu=${XTENSA_CLANG_MCPU})
-  # Define __XCC__ so SOF's HiFi detection logic recognizes our LLVM Clang
-  # as an Xtensa compiler with HiFi support (enables HiFi3/4 code paths).
-  list(APPEND TOOLCHAIN_C_FLAGS -D__XCC__)
+  # Define __XCC__ so SOF's HiFi detection logic (format.h, fft.h, fir_config.h
+  # etc.) recognises our LLVM Clang as an Xtensa compiler with HiFi support and
+  # enters the "#if defined __XCC__" branches that read XCHAL_HAVE_HIFIx from
+  # <xtensa/config/core-isa.h>.
+  # Also define __XCC_CLANG__ so the CAVS-family core-isa.h files (tgl, apl,
+  # cnl, icl) can whitelist LLVM without triggering their "#error xcc should
+  # not use this header" guard (see modules/hal/xtensa patch below).
+  list(APPEND TOOLCHAIN_C_FLAGS -D__XCC__ -D__XCC_CLANG__)
   # Use the GCC assembler for all code — the integrated assembler can't
   # encode HiFi pseudo instructions (AE_MOVDA32X2 etc).
   list(APPEND TOOLCHAIN_C_FLAGS -fno-integrated-as)
