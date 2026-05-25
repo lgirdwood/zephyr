@@ -328,12 +328,34 @@ static int llext_link_plt(struct llext_loader *ldr, struct llext *ext, elf_shdr_
 			continue;
 		}
 
-		uint8_t *rel_addr = (uint8_t *)ext->mem[LLEXT_MEM_TEXT] -
-			ldr->sects[LLEXT_MEM_TEXT].sh_offset;
+		uint8_t *rel_addr;
 
-		if (tgt) {
-			/* Relocatable / partially linked ELF. */
-			rel_addr += rela.r_offset + tgt->sh_offset;
+		if (tgt && ldr_parm->section_detached &&
+		    ldr_parm->section_detached(tgt)) {
+			/*
+			 * Detached section: it stays in DRAM at its ELF file
+			 * offset, so the patch site is directly in the ELF
+			 * buffer rather than in a SRAM-mapped region.
+			 */
+			rel_addr = (uint8_t *)llext_peek(ldr,
+					tgt->sh_offset + rela.r_offset);
+		} else if (tgt) {
+			/*
+			 * Relocatable / partially linked ELF. Use the actual
+			 * loaded address of the target section so this works
+			 * for both buffer-loaded and pre-located (SRAM) sections.
+			 */
+			unsigned int tgt_idx = tgt - ext->sect_hdrs;
+			void *tgt_base = llext_loaded_sect_ptr(ldr, ext, tgt_idx);
+
+			if (!tgt_base) {
+				/* Fall back to file-buffer formula */
+				rel_addr = (uint8_t *)ext->mem[LLEXT_MEM_TEXT] -
+					ldr->sects[LLEXT_MEM_TEXT].sh_offset;
+				rel_addr += rela.r_offset + tgt->sh_offset;
+			} else {
+				rel_addr = (uint8_t *)tgt_base + rela.r_offset;
+			}
 		} else {
 			/* Shared / dynamically linked ELF */
 			ssize_t offset = llext_file_offset(ldr, rela.r_offset);
@@ -344,6 +366,8 @@ static int llext_link_plt(struct llext_loader *ldr, struct llext *ext, elf_shdr_
 				continue;
 			}
 
+			rel_addr = (uint8_t *)ext->mem[LLEXT_MEM_TEXT] -
+				ldr->sects[LLEXT_MEM_TEXT].sh_offset;
 			rel_addr += offset;
 		}
 
