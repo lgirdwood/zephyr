@@ -305,6 +305,10 @@ void sys_heap_free(struct sys_heap *heap, void *mem)
 	 */
 	if (SYS_HEAP_HARDENING_BASIC &&
 	    left_chunk(h, right_chunk(h, c)) != c) {
+		extern volatile uintptr_t _sof_heap_corrupt_addr;
+		extern volatile uint32_t _sof_heap_corrupt_csz;
+		_sof_heap_corrupt_addr = (uintptr_t)mem;
+		_sof_heap_corrupt_csz = chunk_size(h, c) * CHUNK_UNIT;
 		LOG_ERR("heap corruption (buffer overflow?) at %p", mem);
 		k_panic();
 	}
