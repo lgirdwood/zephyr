@@ -53,17 +53,25 @@ ssize_t z_impl_llext_get_fn_table(struct llext *ext, bool is_init, void *buf, si
 		 * text region of the extension. If this fails, something went
 		 * wrong during the relocation process.
 		 * Using "char *" for these simplifies pointer arithmetic.
+		 *
+		 * Skip when text region is empty: pre-located modules whose code
+		 * sections are all detached (remain in DRAM) have text_size==0
+		 * but init/fini pointers are still valid DRAM addresses.
 		 */
 		const char *text_start = ext->mem[LLEXT_MEM_TEXT];
-		const char *text_end = text_start + ext->mem_size[LLEXT_MEM_TEXT];
+		size_t text_size = ext->mem_size[LLEXT_MEM_TEXT];
 		const char **fn_ptrs = buf;
 
-		for (int i = 0; i < table_size / sizeof(void *); i++) {
-			if (fn_ptrs[i] < text_start || fn_ptrs[i] >= text_end) {
-				LOG_ERR("%s function %i (%p) outside text region",
-					is_init ? "bringup" : "teardown",
-					i, fn_ptrs[i]);
-				return -EFAULT;
+		if (text_size > 0) {
+			const char *text_end = text_start + text_size;
+
+			for (int i = 0; i < table_size / sizeof(void *); i++) {
+				if (fn_ptrs[i] < text_start || fn_ptrs[i] >= text_end) {
+					LOG_ERR("%s function %i (%p) outside text region",
+						is_init ? "bringup" : "teardown",
+						i, fn_ptrs[i]);
+					return -EFAULT;
+				}
 			}
 		}
 	}

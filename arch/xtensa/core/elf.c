@@ -150,6 +150,17 @@ int arch_elf_relocate_local(struct llext_loader *ldr, struct llext *ext, const e
 		sh_addr = shdr->sh_addr &&
 			(!ldr_parm->section_detached || !ldr_parm->section_detached(shdr)) ?
 			shdr->sh_addr : (uintptr_t)llext_loaded_sect_ptr(ldr, ext, sym->st_shndx);
+
+		/*
+		 * For pre-located detached sections not mapped into any LLEXT region
+		 * (e.g. code that stays in the ELF DRAM buffer), llext_loaded_sect_ptr
+		 * returns 0. Fall back to the section's position in the ELF buffer so
+		 * .init_array entries pointing at detached text resolve to valid,
+		 * callable DRAM addresses.
+		 */
+		if (!sh_addr) {
+			sh_addr = (uintptr_t)llext_peek(ldr, shdr->sh_offset);
+		}
 	} else {
 		sh_addr = ldr->sects[LLEXT_MEM_TEXT].sh_addr;
 	}

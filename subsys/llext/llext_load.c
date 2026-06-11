@@ -43,7 +43,7 @@ const void *llext_loaded_sect_ptr(struct llext_loader *ldr, struct llext *ext, u
 {
 	enum llext_mem mem_idx = ldr->sect_map[sh_ndx].mem_idx;
 
-	if (mem_idx == LLEXT_MEM_COUNT) {
+	if (mem_idx == LLEXT_MEM_COUNT || !ext->mem[mem_idx]) {
 		return NULL;
 	}
 
