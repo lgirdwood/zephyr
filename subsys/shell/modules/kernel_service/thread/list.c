@@ -98,7 +98,15 @@ static void shell_tdata_dump(const struct k_thread *cthread, void *user_data)
 			    ret);
 	} else {
 		/* Calculate the real size reserved for the stack */
-		pcnt = ((size - unused) * 100U) / size;
+		if (size == 0U) {
+			/*
+			 * Guard against divide by 0 for threads from
+			 * hotplugged CPUs that may currently be OFF.
+			 */
+			pcnt = 0U;
+		} else {
+			pcnt = ((size - unused) * 100U) / size;
+		}
 
 		shell_print(sh,
 			    "\tstack size %zu, unused %zu, usage %zu / %zu (%u %%)\n",

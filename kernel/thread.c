@@ -1076,6 +1076,15 @@ int z_impl_k_thread_stack_space_get(const struct k_thread *thread,
 	}
 #endif /* CONFIG_THREAD_STACK_MEM_MAPPED */
 
+	/*
+	 * Dummy/idle threads on hotplugged CPUs are initialised
+	 * with stack_info.start = 0 and size = 0. Guard against
+	 * trying to analyze those stacks with invalid parameters.
+	 */
+	if (thread->stack_info.start == 0U || thread->stack_info.size == 0U) {
+		return -EINVAL;
+	}
+
 	return z_stack_space_get((const uint8_t *)thread->stack_info.start,
 				 thread->stack_info.size, unused_ptr);
 }
