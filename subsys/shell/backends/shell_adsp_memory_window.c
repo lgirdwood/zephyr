@@ -13,7 +13,7 @@
 
 SHELL_ADSP_MEMORY_WINDOW_DEFINE(shell_transport_adsp_memory_window);
 SHELL_DEFINE(shell_adsp_memory_window, CONFIG_SHELL_BACKEND_ADSP_MEMORY_WINDOW_PROMPT,
-	     &shell_transport_adsp_memory_window, 256, 0, SHELL_FLAG_OLF_CRLF);
+	     &shell_transport_adsp_memory_window, 8192, 0, SHELL_FLAG_OLF_CRLF);
 
 LOG_MODULE_REGISTER(shell_adsp_memory_window);
 
