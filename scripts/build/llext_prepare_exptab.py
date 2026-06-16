@@ -124,26 +124,27 @@ class ZephyrElfExptabPreparator:
 
         # 2) Generate the SLID for all exports
         collided = False
-        sorted_exptab = dict()
+        slid_exports = []
         for name, export_addr in exports_list:
             slid = llext_slidlib.generate_slid(name, self.ptrsize)
+            slid_exports.append((slid, name, export_addr))
 
-            collision = sorted_exptab.get(slid)
-            if collision:
-                # Don't abort immediately on collision,
-                # if there are others we want to log them all.
+        # Check for true collisions (same SLID, different name)
+        slids_seen = {}
+        for slid, name, export_addr in slid_exports:
+            prev_name = slids_seen.get(slid)
+            if prev_name and prev_name != name:
                 self.log.error(
-                    f"SLID collision: {name} and {collision[0]} have the same SLID 0x{slid:X}"
+                    f"SLID collision: {name} and {prev_name} have the same SLID 0x{slid:X}"
                 )
                 collided = True
-            else:
-                sorted_exptab[slid] = (name, export_addr)
+            slids_seen[slid] = name
 
         if collided:
             return 1
 
-        # 3) Sort the export table (order specified above)
-        sorted_exptab = dict(sorted(sorted_exptab.items()))
+        # 3) Sort the export table by SLID in ascending order
+        slid_exports.sort(key=lambda x: x[0])
 
         # 4) Write the updated export table to ELF, and dump
         # to SLID listing if requested by caller
@@ -165,13 +166,13 @@ class ZephyrElfExptabPreparator:
 
             self.log.info("SLID -> export name mapping:")
 
-            for i, (slid, name_and_symaddr) in enumerate(sorted_exptab.items()):
+            for i, (slid, name, symaddr) in enumerate(slid_exports):
                 slid_as_str = llext_slidlib.format_slid(slid, self.ptrsize)
-                msg = f"{slid_as_str} -> {name_and_symaddr[0]}"
+                msg = f"{slid_as_str} -> {name}"
                 self.log.info(msg)
                 slidlist_write(msg)
 
-                self.exptab_manipulator[i] = (slid, name_and_symaddr[1])
+                self.exptab_manipulator[i] = (slid, symaddr)
         return 0
 
     def _prepare_exptab_for_str_linking(self):

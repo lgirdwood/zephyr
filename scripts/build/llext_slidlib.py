@@ -23,7 +23,139 @@ IMPLEMENTATION NOTES:
   the 64-bit SLID for the same export.
 """
 
+import os
+import re
+import subprocess
 from hashlib import sha256
+
+# In-memory cache to store extracted signatures and avoid redundant ripgrep runs
+_signature_cache = {}
+
+def find_signature(symbol_name: str) -> str:
+    """
+    Search for a symbol's function signature/prototype in the workspace.
+    Returns the normalized signature string, or None if not found/macro-generated.
+    """
+    if symbol_name in _signature_cache:
+        return _signature_cache[symbol_name]
+
+    # Determine workspace directory relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    zephyr_root = os.path.dirname(os.path.dirname(script_dir))
+    workspace_root = os.path.dirname(zephyr_root)
+
+    search_dirs = [zephyr_root]
+    sof_dir = os.path.join(workspace_root, "sof")
+    if os.path.isdir(sof_dir):
+        search_dirs.append(sof_dir)
+    else:
+        search_dirs.append(workspace_root)
+
+    # Use ripgrep to find matches of the symbol word
+    try:
+        cmd = ["rg", "-n", "-w", "--glob", "!build*", "--glob", "!.git*", symbol_name] + search_dirs
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        lines = res.stdout.splitlines()
+    except Exception:
+        _signature_cache[symbol_name] = None
+        return None
+
+    candidates = []
+    for line in lines:
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        file_path, line_num_str, content = parts
+        try:
+            line_num = int(line_num_str)
+        except ValueError:
+            continue
+        content_stripped = content.strip()
+
+        if content_stripped.startswith(("//", "*", "/*")):
+            continue
+        if f".{symbol_name}" in content_stripped or f"->{symbol_name}" in content_stripped:
+            continue
+
+        first_word_match = re.match(r"^(\w+)", content_stripped)
+        if first_word_match:
+            w = first_word_match.group(1)
+            if w in ("return", "if", "while", "for", "switch", "goto", "sizeof", "EXPORT_SYMBOL", "EXPORT_SYMBOL_NAMED"):
+                continue
+
+        if not re.search(r"\b" + re.escape(symbol_name) + r"\b", content_stripped):
+            continue
+
+        candidates.append((file_path, line_num))
+
+    if not candidates:
+        _signature_cache[symbol_name] = None
+        return None
+
+    # Prefer headers (.h) over source files (.c)
+    candidates.sort(key=lambda x: (0 if x[0].endswith(".h") else 1, x[0]))
+
+    for file_path, line_num in candidates:
+        try:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                file_lines = f.readlines()
+        except Exception:
+            continue
+
+        accumulated = []
+        found_end = False
+        sig = ""
+
+        for idx in range(line_num - 1, len(file_lines)):
+            l = file_lines[idx]
+            l_no_comment = re.sub(r"//.*", "", l)
+            accumulated.append(l_no_comment)
+
+            full_str = "".join(accumulated)
+            full_str_clean = re.sub(r"/\*.*?\*/", "", full_str, flags=re.DOTALL)
+
+            if ";" in full_str_clean:
+                sig = full_str_clean.split(";")[0] + ";"
+                found_end = True
+                break
+            elif "{" in full_str_clean:
+                sig = full_str_clean.split("{")[0].strip()
+                found_end = True
+                break
+
+        if found_end:
+            sig = re.sub(r"\s+", " ", sig).strip()
+            match = re.match(r"(.*?)\((.*)\)", sig)
+            if match:
+                ret_and_name, params_str = match.groups()
+                ret_and_name = re.sub(r"\s+", " ", ret_and_name).strip()
+
+                params = []
+                for param in params_str.split(","):
+                    param = param.strip()
+                    if not param:
+                        continue
+                    if param == "void":
+                        params.append("void")
+                        continue
+                    p_match = re.match(r"^(.*?)(?:\b([a-zA-Z_][a-zA-Z0-9_]*))?$", param)
+                    if p_match:
+                        p_type, p_name = p_match.groups()
+                        p_type = p_type.strip()
+                        p_type = re.sub(r"\s+\*", "*", p_type)
+                        p_type = re.sub(r"\s+", " ", p_type).strip()
+                        params.append(p_type)
+                    else:
+                        params.append(param)
+                normalized_sig = f"{ret_and_name}({','.join(params)})"
+            else:
+                normalized_sig = sig
+
+            _signature_cache[symbol_name] = normalized_sig
+            return normalized_sig
+
+    _signature_cache[symbol_name] = None
+    return None
 
 
 def generate_slid(symbol_name: str, slid_size: int) -> int:
@@ -31,15 +163,22 @@ def generate_slid(symbol_name: str, slid_size: int) -> int:
     Generates the Symbol Link Identifier (SLID) for a symbol.
 
         symbol_name: Name of the symbol for which to generate a SLID
-        slid_side: Size of the SLID in bytes (4/8)
+        slid_size: Size of the SLID in bytes (4/8)
     """
     if slid_size not in (4, 8):
         raise AssertionError(f"Invalid SLID size {slid_size}")
 
+    sig = find_signature(symbol_name)
+    if sig:
+        input_str = f"{symbol_name}:{sig}"
+    else:
+        input_str = symbol_name
+
     m = sha256()
-    m.update(symbol_name.encode("utf-8"))
+    m.update(input_str.encode("utf-8"))
     hash = m.digest()
     return int.from_bytes(hash[0:slid_size], byteorder='big', signed=False)
+
 
 
 def format_slid(slid: int, slid_size: int) -> str:
