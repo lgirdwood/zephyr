@@ -431,6 +431,8 @@ static inline uint32_t *alloc_l2_table(void)
  * @param[in] attrs Page table attributes for the memory region.
  * @param[in] options Options for the memory region.
  */
+
+
 static void map_memory_range(const uint32_t start, const uint32_t end,
 			     const uint32_t attrs, const uint32_t options)
 {
@@ -465,6 +467,8 @@ static void map_memory_range(const uint32_t start, const uint32_t end,
 
 			init_page_table(l2_table, L2_PAGE_TABLE_NUM_ENTRIES, PTE_L2_ILLEGAL);
 
+
+
 			xtensa_kernel_ptables[l1_pos] =
 				PTE((uint32_t)l2_table, RING_KERNEL, XTENSA_MMU_PAGE_TABLE_ATTR);
 		}
@@ -476,7 +480,7 @@ static void map_memory_range(const uint32_t start, const uint32_t end,
 
 static void xtensa_init_page_tables(void)
 {
-	volatile uint8_t entry;
+	uint32_t entry;
 	static bool already_inited;
 
 	if (already_inited) {
@@ -526,6 +530,8 @@ __weak void arch_xtensa_mmu_post_init(bool is_core0)
 void xtensa_mmu_init(void)
 {
 	xtensa_init_page_tables();
+
+
 
 	xtensa_mmu_init_paging();
 

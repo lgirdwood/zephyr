@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 zephyr_cc_option(-mlongcalls)
+zephyr_cc_option(-mtext-section-literals)
 
 zephyr_library()
 
@@ -41,9 +42,13 @@ if(CONFIG_SOC_FAMILY_ESPRESSIF_ESP32)
       -I${ZEPHYR_HAL_ESPRESSIF_MODULE_DIR}/components/xtensa/${CONFIG_SOC}/include
      )
 else()
-  set(XTENSA_CONFIG_HAL_INCLUDE_DIR
-      -I${ZEPHYR_XTENSA_MODULE_DIR}/zephyr/soc/${CONFIG_SOC_TOOLCHAIN_NAME}
-     )
+  set(XTENSA_CONFIG_HAL_INCLUDE_DIR)
+  if(EXISTS ${ZEPHYR_XTENSA_MODULE_DIR}/zephyr/soc/${CONFIG_SOC_TOOLCHAIN_NAME})
+    list(APPEND XTENSA_CONFIG_HAL_INCLUDE_DIR -I${ZEPHYR_XTENSA_MODULE_DIR}/zephyr/soc/${CONFIG_SOC_TOOLCHAIN_NAME})
+  endif()
+  if(EXISTS ${ZEPHYR_XTENSA_MODULE_DIR}/zephyr/soc/${CONFIG_SOC})
+    list(APPEND XTENSA_CONFIG_HAL_INCLUDE_DIR -I${ZEPHYR_XTENSA_MODULE_DIR}/zephyr/soc/${CONFIG_SOC})
+  endif()
 endif()
 
 add_subdirectory(startup)
