@@ -613,6 +613,24 @@ _TripleFault:
 	movi a2, SYS_exit
 	simcall
 #endif
+#if defined(CONFIG_XTENSA_ADSP_FATAL_BREADCRUMB)
+	/* DEBUG breadcrumb: record double-exception EPC1/EXCCAUSE/DEPC into
+	 * HP-SRAM window0 uncached alias so the host can see we triple-faulted.
+	 * 0xdb1e marks a double exception. Clobbers a2/a3 (we spin forever next).
+	 */
+	rsr.epc1 a2
+	movi a3, 0x40024000
+	s32i a2, a3, 0
+	rsr.exccause a2
+	movi a3, 0xdb1e0000
+	or a2, a2, a3
+	movi a3, 0x40024000
+	s32i a2, a3, 4
+	rsr.depc a2
+	movi a3, 0x40024000
+	s32i a2, a3, 8
+	memw
+#endif
 1:
 	j	1b
 
