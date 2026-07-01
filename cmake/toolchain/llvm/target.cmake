@@ -93,8 +93,8 @@ elseif("${ARCH}" STREQUAL "xtensa")
   set(triple xtensa-${XTENSA_TOOLCHAIN_TARGET}_zephyr-elf)
   set(XTENSA_CLANG_MCPU ${XTENSA_CORE_ID})
 
-  # Use LLVM LLD linker
-  set(LINKER lld)
+  # Use GNU ld linker
+  set(LINKER ld)
   set(BINTOOLS llvm)
 
   set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
@@ -152,7 +152,7 @@ elseif("${ARCH}" STREQUAL "xtensa")
     list(APPEND TOOLCHAIN_LD_FLAGS -B${TOOLCHAIN_HOME})
   endif()
 
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -nostartfiles -nodefaultlibs" CACHE STRING "" FORCE)
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -nostartfiles -nodefaultlibs --ld-path=/home/lrg/zephyr-sdk-1.0.1/gnu/xtensa-intel_ace15_mtpm_zephyr-elf/bin/xtensa-intel_ace15_mtpm_zephyr-elf-ld" CACHE STRING "" FORCE)
 
   # Override compiler_set_linker_properties to use compiler-rt builtins
   function(compiler_set_linker_properties)
