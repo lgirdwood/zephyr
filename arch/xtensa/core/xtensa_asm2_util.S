@@ -347,6 +347,8 @@ noflush:
 	 */
 	l32i a2, a1, 0
 	l32i a3, a2, ___xtensa_irq_bsa_t_a3_OFFSET
+	movi a8, ___thread_t_switch_handle_OFFSET
+	add a3, a3, a8
 	s32i a1, a3, 0
 
 	/* Switch stack pointer and restore.  The jump to
