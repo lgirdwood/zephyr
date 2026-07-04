@@ -128,21 +128,15 @@
 	 _BSA_PADDING_COMMON)
 
 /* Each stack frame always has a pointer to BSA so we add
- * that (+4 or +16 under Clang) to the BSA size before padding the BSA to have
+ * that (+4) to the BSA size before padding the BSA to have
  * size aligned on 16 bytes. Each group of high registers to
  * be saved (totally 3 groups) consists of 4 registers which
  * are 16 bytes already. So each type of stack frame
  * (A[3, 7, 11, 15]) do not need any further padding as long
  * as the BSA struct is of correct size.
  */
-#ifdef __clang__
-#define _BSA_ALIGN_SIZE 16
-#else
-#define _BSA_ALIGN_SIZE 4
-#endif
-
 #define _BSA_PADDING_PADDED_SIZE	\
-	((((_BSA_PADDING_BASE_SIZE + _BSA_ALIGN_SIZE) + 15) / 16 * 16) - _BSA_ALIGN_SIZE)
+	((((_BSA_PADDING_BASE_SIZE + 4) + 15) / 16 * 16) - 4)
 
 /* How many extra bytes needed. */
 #define _BSA_PADDING_NEEDED		\
@@ -245,9 +239,6 @@ typedef struct xtensa_irq_base_save_area _xtensa_irq_bsa_t;
  */
 struct xtensa_irq_stack_frame_raw {
 	_xtensa_irq_bsa_t *ptr_to_bsa;
-#ifdef __clang__
-	uint32_t ptr_to_bsa_padding[3];
-#endif
 
 	struct {
 		uintptr_t r0;
@@ -264,9 +255,6 @@ typedef struct xtensa_irq_stack_frame_raw _xtensa_irq_stack_frame_raw_t;
  */
 struct xtensa_irq_stack_frame_a15 {
 	_xtensa_irq_bsa_t *ptr_to_bsa;
-#ifdef __clang__
-	uint32_t ptr_to_bsa_padding[3];
-#endif
 
 	uintptr_t a12;
 	uintptr_t a13;
@@ -293,9 +281,6 @@ typedef struct xtensa_irq_stack_frame_a15 _xtensa_irq_stack_frame_a15_t;
  */
 struct xtensa_irq_stack_frame_a11 {
 	_xtensa_irq_bsa_t *ptr_to_bsa;
-#ifdef __clang__
-	uint32_t ptr_to_bsa_padding[3];
-#endif
 
 	uintptr_t a8;
 	uintptr_t a9;
@@ -317,9 +302,6 @@ typedef struct xtensa_irq_stack_frame_a11 _xtensa_irq_stack_frame_a11_t;
  */
 struct xtensa_irq_stack_frame_a7 {
 	_xtensa_irq_bsa_t *ptr_to_bsa;
-#ifdef __clang__
-	uint32_t ptr_to_bsa_padding[3];
-#endif
 
 	uintptr_t a4;
 	uintptr_t a5;
@@ -336,9 +318,6 @@ typedef struct xtensa_irq_stack_frame_a7 _xtensa_irq_stack_frame_a7_t;
  */
 struct xtensa_irq_stack_frame_a3 {
 	_xtensa_irq_bsa_t *ptr_to_bsa;
-#ifdef __clang__
-	uint32_t ptr_to_bsa_padding[3];
-#endif
 
 	_xtensa_irq_bsa_t bsa;
 };
