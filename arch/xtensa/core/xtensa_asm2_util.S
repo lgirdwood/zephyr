@@ -11,6 +11,14 @@
 #include <xtensa/simcall.h>
 #endif
 
+#if defined(CONFIG_XTENSA_ADSP_TRIPLE_FAULT_BREADCRUMB)
+#if defined(CONFIG_SOC_SERIES_INTEL_ADSP_ACE)
+#define HP_SRAM_WIN0_BASE_UC 0x40024000
+#else
+#define HP_SRAM_WIN0_BASE_UC 0x5e024000
+#endif
+#endif
+
 /*
  * xtensa_spill_reg_windows
  *
@@ -602,6 +610,24 @@ _TripleFault:
 	movi a3, 1
 	movi a2, SYS_exit
 	simcall
+#endif
+#if defined(CONFIG_XTENSA_ADSP_TRIPLE_FAULT_BREADCRUMB)
+	/* DEBUG breadcrumb: record double-exception EPC1/EXCCAUSE/DEPC into
+	 * HP-SRAM window0 uncached alias so the host can see we triple-faulted.
+	 * 0xdb1e marks a double exception. Clobbers a2/a3 (we spin forever next).
+	 */
+	rsr.epc1 a2
+	movi a3, HP_SRAM_WIN0_BASE_UC
+	s32i a2, a3, 0
+	rsr.exccause a2
+	movi a3, 0xdb1e0000
+	or a2, a2, a3
+	movi a3, HP_SRAM_WIN0_BASE_UC
+	s32i a2, a3, 4
+	rsr.depc a2
+	movi a3, HP_SRAM_WIN0_BASE_UC
+	s32i a2, a3, 8
+	memw
 #endif
 1:
 	j	1b
