@@ -9,8 +9,8 @@ set_ifndef(LINKERFLAGPREFIX -Wl)
 if((${CMAKE_LINKER} STREQUAL "${CROSS_COMPILE}ld.bfd") OR
    ${GNULD_LINKER_IS_BFD})
   # ld.bfd was found so let's explicitly use that for linking, see #32237
-  list(APPEND TOOLCHAIN_LD_FLAGS -fuse-ld=bfd)
-  list(APPEND CMAKE_REQUIRED_FLAGS -fuse-ld=bfd)
+  # list(APPEND TOOLCHAIN_LD_FLAGS -fuse-ld=bfd)
+  # list(APPEND CMAKE_REQUIRED_FLAGS -fuse-ld=bfd)
   string(REPLACE ";" " " CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS}")
 endif()
 
@@ -154,8 +154,13 @@ macro(toolchain_linker_finalize)
   set(link_libraries "<OBJECTS> -o <TARGET> <LINK_LIBRARIES> ${zephyr_std_libs}")
   set(common_link "<LINK_FLAGS> ${link_libraries}")
 
-  set(CMAKE_ASM_LINK_EXECUTABLE "<CMAKE_ASM_COMPILER> <FLAGS> <CMAKE_ASM_LINK_FLAGS> ${common_link}")
-  set(CMAKE_C_LINK_EXECUTABLE   "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> ${common_link}")
+  if(DEFINED XTENSA_GCC)
+    set(CMAKE_ASM_LINK_EXECUTABLE "${XTENSA_GCC} <FLAGS> <CMAKE_ASM_LINK_FLAGS> ${common_link}")
+    set(CMAKE_C_LINK_EXECUTABLE   "${XTENSA_GCC} <FLAGS> <CMAKE_C_LINK_FLAGS> ${common_link}")
+  else()
+    set(CMAKE_ASM_LINK_EXECUTABLE "<CMAKE_ASM_COMPILER> <FLAGS> <CMAKE_ASM_LINK_FLAGS> ${common_link}")
+    set(CMAKE_C_LINK_EXECUTABLE   "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> ${common_link}")
+  endif()
 
   set(cpp_link "${common_link}")
   if(NOT "${ZEPHYR_TOOLCHAIN_VARIANT}" STREQUAL "host")
@@ -167,7 +172,12 @@ macro(toolchain_linker_finalize)
       set(cpp_link "<LINK_FLAGS> ${CRTBEGIN_PATH} ${link_libraries} ${CRTEND_PATH}")
     endif()
   endif()
-  set(CMAKE_CXX_LINK_EXECUTABLE "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> ${cpp_link}")
+  
+  if(DEFINED XTENSA_GCC)
+    set(CMAKE_CXX_LINK_EXECUTABLE "${XTENSA_GCC} <FLAGS> <CMAKE_CXX_LINK_FLAGS> ${cpp_link}")
+  else()
+    set(CMAKE_CXX_LINK_EXECUTABLE "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> ${cpp_link}")
+  endif()
 endmacro()
 
 # Function to map compiler flags into suitable linker flags
