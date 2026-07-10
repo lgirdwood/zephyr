@@ -630,7 +630,7 @@ _TripleFault:
 
 	/* 3. Write EXCCAUSE combined with 0xdb1e0000 to win0[1] */
 	/* Construct 0xdb1e0000 in a2 without literals/l32r */
-	movi a2, 0xd8
+	movi a2, 0xdb
 	slli a2, a2, 8
 	movi a4, 0x1e
 	add a2, a2, a4
