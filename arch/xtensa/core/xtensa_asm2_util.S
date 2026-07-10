@@ -605,21 +605,41 @@ _TripleFault:
 	movi a2, SYS_exit
 	simcall
 #endif
-#if defined(CONFIG_XTENSA_ADSP_FATAL_BREADCRUMB)
+#if defined(CONFIG_XTENSA_ADSP_TRIPLE_FAULT_BREADCRUMB)
 	/* DEBUG breadcrumb: record double-exception EPC1/EXCCAUSE/DEPC into
 	 * HP-SRAM window0 uncached alias so the host can see we triple-faulted.
-	 * 0xdb1e marks a double exception. Clobbers a2/a3 (we spin forever next).
+	 * 0xdb1e marks a double exception. Clobbers a2/a3/a4.
 	 */
+	/* 1. Construct base address in a3 without causing literals/l32r */
+#if defined(CONFIG_SOC_SERIES_INTEL_ADSP_ACE)
+	movi a3, 1
+	slli a3, a3, 30
+#else
+	movi a3, 0x5e
+	slli a3, a3, 24
+#endif
+	movi a4, 0x240
+	slli a4, a4, 8
+	add a3, a3, a4
+
+	/* 2. Write EPC1 to win0[0] */
 	rsr.epc1 a2
-	movi a3, 0x40024000
 	s32i a2, a3, 0
-	rsr.exccause a2
-	movi a3, 0xdb1e0000
-	or a2, a2, a3
-	movi a3, 0x40024000
+
+	/* 3. Write EXCCAUSE combined with 0xdb1e0000 to win0[1] */
+	/* Construct 0xdb1e0000 in a2 without literals/l32r */
+	movi a2, 0xdb
+	slli a2, a2, 8
+	movi a4, 0x1e
+	add a2, a2, a4
+	slli a2, a2, 16
+	/* Combine with EXCCAUSE */
+	rsr.exccause a4
+	or a2, a2, a4
 	s32i a2, a3, 4
+
+	/* 4. Write DEPC to win0[2] */
 	rsr.depc a2
-	movi a3, 0x40024000
 	s32i a2, a3, 8
 	memw
 #endif
