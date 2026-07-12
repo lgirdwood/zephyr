@@ -61,6 +61,8 @@ const void *llext_loaded_sect_ptr(struct llext_loader *ldr, struct llext *ext, u
 	 * Only fall back to llext_peek() for sections with a valid linked
 	 * address (sh_addr >= 0x08000000) that are NOT in the sect_map
 	 * (e.g. pre-located read-only sections in ROM/IMR).
+	 * For ET_REL sections (sh_addr=0), return NULL so callers fall back
+	 * to llext_peek() themselves with appropriate error handling.
 	 */
 	enum llext_mem mem_idx = ldr->sect_map[sh_ndx].mem_idx;
 
@@ -68,7 +70,8 @@ const void *llext_loaded_sect_ptr(struct llext_loader *ldr, struct llext *ext, u
 		return (const uint8_t *)ext->mem[mem_idx] + ldr->sect_map[sh_ndx].offset;
 	}
 
-	if (shdr->sh_addr < 0x08000000) {
+	/* Only peek for pre-located ROM/IMR sections with a valid VMA */
+	if (shdr->sh_addr >= 0x08000000) {
 		return llext_peek(ldr, shdr->sh_offset);
 	}
 
