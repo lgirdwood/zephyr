@@ -624,13 +624,11 @@ _TripleFault:
 	slli a4, a4, 8
 	add a3, a3, a4
 
-	/* 2. Write EPC1 to win0[0] = the first exception PC being handled
-	 * when the double exception fired. This is what we want to debug.
-	 */
+	/* 2. Write EPC1 to win0[4] (offset 16) */
 	rsr.epc1 a2
-	s32i a2, a3, 0
+	s32i a2, a3, 16
 
-	/* 3. Write EXCCAUSE combined with 0xdb1e0000 to win0[1] */
+	/* 3. Write EXCCAUSE combined with 0xdb1e0000 to win0[5] (offset 20) */
 	/* Construct 0xdb1e0000 in a2 without literals/l32r */
 	movi a2, 0xdb
 	slli a2, a2, 8
@@ -640,11 +638,11 @@ _TripleFault:
 	/* Combine with EXCCAUSE */
 	rsr.exccause a4
 	or a2, a2, a4
-	s32i a2, a3, 4
+	s32i a2, a3, 20
 
-	/* 4. Write DEPC to win0[2] */
+	/* 4. Write DEPC to win0[6] (offset 24) */
 	rsr.depc a2
-	s32i a2, a3, 8
+	s32i a2, a3, 24
 	memw
 #endif
 1:
