@@ -624,7 +624,9 @@ _TripleFault:
 	slli a4, a4, 8
 	add a3, a3, a4
 
-	/* 2. Write EPC1 to win0[0] */
+	/* 2. Write EPC1 to win0[0] = the first exception PC being handled
+	 * when the double exception fired. This is what we want to debug.
+	 */
 	rsr.epc1 a2
 	s32i a2, a3, 0
 
