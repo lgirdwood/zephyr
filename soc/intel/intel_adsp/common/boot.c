@@ -160,9 +160,15 @@ __imr void boot_core0(void)
 	lp_sram_init();
 	parse_manifest();
 
+	sys_cache_data_flush_all();
+
 	arch_bss_zero();
 
-	sys_cache_data_flush_all();
+	extern char __bss_start[];
+	extern char __bss_end[];
+	sys_cache_data_invd_range(sys_cache_cached_ptr_get(__bss_start), __bss_end - __bss_start);
+
+	sys_cache_instr_invd_all();
 
 	xtensa_vecbase_lock();
 
