@@ -158,15 +158,30 @@ __imr void boot_core0(void)
 
 	hp_sram_init(L2_SRAM_SIZE);
 	lp_sram_init();
-	parse_manifest();
 
+	/* On resume the L1 data cache retains stale dirty lines from before
+	 * suspend. Flush them NOW, before parse_manifest() loads fresh firmware
+	 * sections into SRAM via the uncached alias. If we flushed after
+	 * parse_manifest() instead, the stale dirty lines would overwrite the
+	 * correctly loaded data in SRAM, corrupting init entries and other
+	 * data sections (causing crashes in bg_thread_main on resume).
+	 * On initial cold boot the cache is clean so this is a no-op.
+	 */
 	sys_cache_data_flush_all();
+
+	parse_manifest();
 
 	arch_bss_zero();
 
-	extern char __bss_start[];
-	extern char __bss_end[];
-	sys_cache_data_invd_range(sys_cache_cached_ptr_get(__bss_start), __bss_end - __bss_start);
+	/* Flush dirty cache lines to SRAM first, then invalidate.
+	 * arch_bss_zero() writes zeros via the cached mapping, creating dirty
+	 * lines. A bare invd_all would DROP those dirty lines, leaving BSS
+	 * un-zeroed in SRAM and causing PIF data faults when init callbacks
+	 * access zero-initialised variables. flush_and_invd_all() writes the
+	 * zeros back first, so subsequent cached reads see fresh SRAM content
+	 * for both the firmware sections loaded by parse_manifest() and BSS.
+	 */
+	sys_cache_data_flush_and_invd_all();
 
 	sys_cache_instr_invd_all();
 
