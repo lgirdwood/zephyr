@@ -124,8 +124,14 @@ SECTIONS {
     *(.iram0.text)
     KEEP(*(.init))
     KEEP(*(.lps_vector))
-    *(.literal .literal.* .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal)
-    *(.text .text.* .stub .gnu.warning .gnu.linkonce.t.*)
+    /* Combine literal and text wildcards into a single expression so that
+     * GNU ld places each object file's .literal.FOO immediately before its
+     * .text.FOO sections. This bounds the l32r backward-reach to one object
+     * file's literal pool size rather than the entire firmware's literal
+     * section, preventing 'literal target out of range' link errors on large
+     * (>256 KB) SOF firmware binaries. */
+    *(.literal .literal.* .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal
+      .text .text.* .stub .gnu.warning .gnu.linkonce.t.*)
     *(.fini.literal)
     KEEP(*(.fini))
     *(.gnu.version)
