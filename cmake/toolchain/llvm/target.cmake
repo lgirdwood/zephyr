@@ -123,7 +123,17 @@ elseif("${ARCH}" STREQUAL "xtensa")
     # Add -flix strictly to compile steps to override wrapper scripts or default CPU settings
     add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,ASM>:SHELL:-Xclang -target-feature -Xclang -flix>")
   endif()
-  # Don't force auto-litpools inline in text sections; place in separate .literal sections instead
+  # Enable LLVM Xtensa auto-litpool mode.
+  # The linker script collects all .literal.* sections into a single block that
+  # precedes all .text.* sections.  For large SOF firmware binaries (>256 KB of
+  # code) the l32r instruction's backward-only 256 KB range is exceeded for
+  # functions placed near the end of text (their literals are at the start of
+  # the literal block, now >256 KB behind the instruction).
+  # Auto-litpool mode moves literal-pool management into the compiler back-end:
+  # it inserts inline literal-pool barriers every ~1 KB of code so that each
+  # l32r instruction is always within range of its literal, independent of the
+  # final link order or linker script layout.
+  add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX,ASM>:SHELL:-Xclang -target-feature -Xclang +autolitpools>")
 
   # Force DWARFv4 debug info for compatibility with Zephyr's kobject scanner
   # (gen_kobject_list.py). Clang defaults to DWARFv5 which the scanner can't parse.
