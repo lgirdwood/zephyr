@@ -67,8 +67,30 @@ static int xtensa_elf_relocate(struct llext_loader *ldr, struct llext *ext,
 		break;
 	case R_XTENSA_GLOB_DAT:
 	case R_XTENSA_JMP_SLOT:
-		if (stb == STB_GLOBAL) {
-			*got_entry = addr;
+		/*
+		 * These relocations bind a GOT/PLT slot to a symbol's resolved
+		 * address. That is unconditional on the symbol's binding class --
+		 * STB_WEAK symbols (e.g. the vtable/typeinfo of a template-
+		 * instantiated C++ class, always emitted weak/COMDAT so multiple
+		 * TUs can each define one) need this applied exactly the same as
+		 * STB_GLOBAL, or the GOT slot is left at its as-built value of 0.
+		 * A zero GOT entry backing an object's vtable pointer means the
+		 * object's first virtual call dereferences a null vtable pointer.
+		 * ARM's arch/arm/core/elf.c applies R_ARM_GLOB_DAT/R_ARM_JUMP_SLOT
+		 * unconditionally with no binding check at all; match that here.
+		 */
+		if (stb == STB_GLOBAL || stb == STB_WEAK) {
+			/*
+			 * addr is the symbol's resolved base address; a nonzero
+			 * r_addend (e.g. +8 on a vtable symbol, skipping the Itanium
+			 * ABI's offset-to-top/RTTI header words to land on the first
+			 * real vtable slot) must still be applied here, exactly as
+			 * the R_XTENSA_32 case below does for GLOBAL bindings.
+			 * Dropping it silently under-targets the GOT/PLT slot by the
+			 * addend, e.g. leaving an object's vptr pointed at the vtable
+			 * header instead of its real first entry.
+			 */
+			*got_entry = addr + rel->r_addend;
 		}
 		break;
 	case R_XTENSA_32:

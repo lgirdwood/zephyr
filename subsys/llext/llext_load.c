@@ -622,7 +622,22 @@ static int llext_count_export_syms(struct llext_loader *ldr, struct llext *ext)
 
 		name = llext_symbol_name(ldr, ext, &sym);
 
-		if ((stt == STT_FUNC || stt == STT_OBJECT) && stb == STB_GLOBAL) {
+		/*
+		 * STB_WEAK is included alongside STB_GLOBAL here: a template-
+		 * instantiated C++ class's vtable/typeinfo (e.g. TFLM's
+		 * SingleArenaBufferAllocator, MicroInterpreterGraph, etc.) is
+		 * emitted weak/COMDAT so multiple TUs can each define one, and by
+		 * the time this extension's ELF is built the linker has already
+		 * deduplicated those down to a single definition -- but it is a
+		 * real, referenceable definition living inside this very
+		 * extension, not an external dependency. Excluding STB_WEAK here
+		 * means such symbols never make it into ext->sym_tab, so the PLT
+		 * relocation loop's "internal tables" lookup (llext_find_sym(&ext
+		 * ->sym_tab, name)) can never find them even though they are
+		 * defined right here, forcing a spurious link failure.
+		 */
+		if ((stt == STT_FUNC || stt == STT_OBJECT) &&
+		    (stb == STB_GLOBAL || stb == STB_WEAK)) {
 			LOG_DBG("function symbol %d, name %s, type tag %d, bind %d, sect %d",
 				i, name, stt, stb, sect);
 			ext->sym_tab.sym_cnt++;
@@ -797,8 +812,9 @@ static int llext_copy_symbols(struct llext_loader *ldr, struct llext *ext,
 		uint32_t stb = ELF_ST_BIND(sym.st_info);
 		unsigned int shndx = sym.st_shndx;
 
+		/* See the matching STB_WEAK comment in llext_count_export_syms() above. */
 		if ((stt == STT_FUNC || stt == STT_OBJECT) &&
-		    stb == STB_GLOBAL && shndx != SHN_UNDEF) {
+		    (stb == STB_GLOBAL || stb == STB_WEAK) && shndx != SHN_UNDEF) {
 			const char *name = llext_symbol_name(ldr, ext, &sym);
 
 			__ASSERT(j <= sym_tab->sym_cnt, "Miscalculated symbol number %u\n", j);

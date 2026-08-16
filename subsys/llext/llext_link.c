@@ -354,6 +354,21 @@ static int llext_link_plt(struct llext_loader *ldr, struct llext *ext, elf_shdr_
 
 		switch (stb) {
 		case STB_GLOBAL:
+		case STB_WEAK:
+			/*
+			 * STB_WEAK falls through to the exact same lookup-then-relocate
+			 * path as STB_GLOBAL. Weak symbols (e.g. the vtable/typeinfo of
+			 * a template-instantiated C++ class, always emitted weak/COMDAT
+			 * so multiple TUs can each define one) still need a real symbol
+			 * resolved and a real relocation applied -- the linker has
+			 * already deduplicated multiple weak definitions down to one by
+			 * the time this ELF is built, so nothing here needs to treat
+			 * weak specially beyond accepting it into this case. Without
+			 * this, a weak-bound PLT relocation entry silently falls
+			 * through this switch doing nothing, leaving its GOT/PLT slot
+			 * at 0 -- which, for a vtable pointer, means the first virtual
+			 * call on that object null-derefs.
+			 */
 			/* First try the global symbol table */
 			link_addr = llext_find_sym(NULL,
 				SYM_NAME_OR_SLID(name, sym.st_value));
