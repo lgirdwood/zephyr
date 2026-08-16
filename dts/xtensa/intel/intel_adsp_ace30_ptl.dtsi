@@ -29,3 +29,11 @@
 		reg = <0xa0020000 DT_SIZE_K(4608)>;
 	};
 };
+
+&hdamluaol {
+	status = "disabled";
+};
+
+&uaol0 {
+	status = "disabled";
+};
