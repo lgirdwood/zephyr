@@ -445,9 +445,8 @@ void IRAM_ATTR i2s_esp32_tx_compl_transfer(struct k_timer *timer)
 
 	err = k_msgq_get(&stream->data->queue, &item, K_NO_WAIT);
 	if (err < 0) {
-		dev_data->state = I2S_STATE_ERROR;
-		LOG_DBG("TX queue empty: %d", err);
-		goto tx_disable;
+		stream->data->transferring = false;
+		return;
 	}
 
 	stream->data->mem_block = item.buffer;
@@ -493,8 +492,6 @@ static void IRAM_ATTR i2s_esp32_tx_callback(void *arg, int status)
 		dev_data->state = I2S_STATE_ERROR;
 		goto tx_disable;
 	}
-
-	k_mem_slab_free(stream->data->i2s_cfg.mem_slab, stream->data->mem_block);
 
 #if SOC_GDMA_SUPPORTED
 	if (status < 0) {
@@ -1621,9 +1618,14 @@ static int i2s_esp32_write(const struct device *dev, void *mem_block, size_t siz
 			 K_MSEC(stream->data->i2s_cfg.timeout));
 	if (err < 0) {
 		LOG_DBG("TX queue full");
+		return err;
 	}
 
-	return err;
+	if (dev_data->state == I2S_STATE_RUNNING && !stream->data->transferring) {
+		i2s_esp32_tx_start_transfer(dev);
+	}
+
+	return 0;
 #else
 	LOG_DBG("TX not enabled");
 	return -EIO;
