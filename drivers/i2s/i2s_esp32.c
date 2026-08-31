@@ -36,11 +36,7 @@
 
 LOG_MODULE_REGISTER(i2s_esp32, CONFIG_I2S_LOG_LEVEL);
 
-#if defined(CONFIG_SOC_SERIES_ESP32P4)
-#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_APLL
-#else
-#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_DEFAULT
-#endif
+#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_XTAL
 #define I2S_ESP32_DMA_BUFFER_MAX_SIZE 4092
 
 #define I2S_ESP32_NUM_INST_OK          DT_NUM_INST_STATUS_OKAY(espressif_esp32_i2s)
@@ -442,6 +438,11 @@ void IRAM_ATTR i2s_esp32_tx_compl_transfer(struct k_timer *timer)
 		}
 	}
 
+	if (stream->data->mem_block != NULL && stream->data->i2s_cfg.mem_slab != NULL) {
+		k_mem_slab_free(stream->data->i2s_cfg.mem_slab, stream->data->mem_block);
+		stream->data->mem_block = NULL;
+	}
+
 	err = k_msgq_get(&stream->data->queue, &item, K_NO_WAIT);
 	if (err < 0) {
 		dev_data->state = I2S_STATE_ERROR;
@@ -586,7 +587,6 @@ static int i2s_esp32_tx_start_transfer(const struct device *dev)
 #endif /* !SOC_GDMA_SUPPORTED */
 
 	stream->data->transferring = true;
-
 	return 0;
 }
 
@@ -607,6 +607,9 @@ static void IRAM_ATTR i2s_esp32_tx_stop_transfer(const struct device *dev)
 	i2s_hal_clear_intr_status(hal, I2S_INTR_MAX);
 #endif /* SOC_GDMA_SUPPORTED */
 
+	if (stream->data->mem_block != NULL && stream->data->i2s_cfg.mem_slab != NULL) {
+		k_mem_slab_free(stream->data->i2s_cfg.mem_slab, stream->data->mem_block);
+	}
 	stream->data->mem_block = NULL;
 	stream->data->mem_block_len = 0;
 
@@ -804,7 +807,6 @@ static int i2s_esp32_start_dma(const struct device *dev, enum i2s_dir dir)
 {
 	const struct i2s_esp32_cfg *dev_cfg = dev->config;
 	const struct i2s_esp32_stream *stream = NULL;
-	unsigned int key;
 	int err = 0;
 
 #if !SOC_GDMA_SUPPORTED || I2S_ESP32_IS_DIR_EN(rx)
@@ -820,12 +822,10 @@ static int i2s_esp32_start_dma(const struct device *dev, enum i2s_dir dir)
 		return -EINVAL;
 	}
 
-	key = irq_lock();
-
 	err = i2s_esp32_config_dma(dev, dir, stream);
 	if (err < 0) {
 		LOG_DBG("Dma configuration failed: %i", err);
-		goto unlock;
+		return err;
 	}
 
 #if I2S_ESP32_IS_DIR_EN(rx)
@@ -854,7 +854,7 @@ static int i2s_esp32_start_dma(const struct device *dev, enum i2s_dir dir)
 	err = dma_start(stream->conf->dma_dev, stream->conf->dma_channel);
 	if (err < 0) {
 		LOG_DBG("Failed to start DMA channel: %" PRIu32, stream->conf->dma_channel);
-		goto unlock;
+		return err;
 	}
 #else
 #if I2S_ESP32_IS_DIR_EN(rx)
@@ -875,10 +875,7 @@ static int i2s_esp32_start_dma(const struct device *dev, enum i2s_dir dir)
 #endif /* SOC_GDMA_SUPPORTED */
 
 	stream->data->dma_pending = true;
-
-unlock:
-	irq_unlock(key);
-	return err;
+	return 0;
 }
 
 static int IRAM_ATTR i2s_esp32_restart_dma(const struct device *dev, enum i2s_dir dir)
@@ -993,6 +990,22 @@ static int i2s_esp32_initialize(const struct device *dev)
 	}
 
 	i2s_ll_enable_core_clock(hal->dev, true);
+
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	if (dev_cfg->unit == 0) {
+		HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 1;
+	} else if (dev_cfg->unit == 1) {
+		HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s1_apb_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl15.reg_i2s1_tx_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl14.reg_i2s1_rx_clk_en = 1;
+	} else if (dev_cfg->unit == 2) {
+		HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s2_apb_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl18.reg_i2s2_tx_clk_en = 1;
+		HP_SYS_CLKRST.peri_clk_ctrl17.reg_i2s2_rx_clk_en = 1;
+	}
+#endif
 
 	err = pinctrl_apply_state(dev_cfg->pcfg, PINCTRL_STATE_DEFAULT);
 	if (err < 0) {
