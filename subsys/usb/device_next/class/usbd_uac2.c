@@ -444,7 +444,7 @@ static void write_explicit_feedback(struct usbd_class_data *const c_data,
 
 	ret = usbd_ep_enqueue(c_data, buf);
 	if (ret) {
-		LOG_ERR("Failed to enqueue net_buf for 0x%02x", ep);
+		LOG_ERR("Failed to enqueue net_buf for 0x%02x (err %d)", ep, ret);
 		net_buf_unref(buf);
 	} else {
 		if (ctx->fb_queued & BIT(as_idx)) {
@@ -503,6 +503,10 @@ void uac2_update(struct usbd_class_data *const c_data,
 		 * were already cancelled by the USB stack.
 		 */
 		atomic_clear_bit(&ctx->as_active, as_idx);
+		atomic_clear_bit(&ctx->as_queued, as_idx);
+		atomic_clear_bit(&ctx->as_double, as_idx);
+		ctx->fb_queued &= ~BIT(as_idx);
+		ctx->fb_double &= ~BIT(as_idx);
 		return;
 	}
 
@@ -838,13 +842,15 @@ static int uac2_request(struct usbd_class_data *const c_data, struct net_buf *bu
 	terminal = cfg->as_terminals[as_idx];
 
 	if (is_feedback) {
-		if (ctx->fb_queued & BIT(as_idx)) {
-			ctx->fb_queued &= ~BIT(as_idx);
-		} else {
+		if (ctx->fb_double & BIT(as_idx)) {
 			ctx->fb_double &= ~BIT(as_idx);
+		} else {
+			ctx->fb_queued &= ~BIT(as_idx);
 		}
-	} else if (!atomic_test_and_clear_bit(&ctx->as_queued, as_idx)) {
-		atomic_clear_bit(&ctx->as_double, as_idx);
+	} else if (atomic_test_and_clear_bit(&ctx->as_double, as_idx)) {
+		/* double queue consumed, as_queued remains set */
+	} else {
+		atomic_clear_bit(&ctx->as_queued, as_idx);
 	}
 
 	if (USB_EP_DIR_IS_OUT(ep)) {
