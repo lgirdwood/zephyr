@@ -101,6 +101,11 @@ static inline int esp32_usb_otg_enable_clk(struct phy_context_t *phy_ctx)
 {
 	usb_wrap_hal_init(&phy_ctx->wrap_hal);
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	usb_wrap_ll_phy_select(phy_ctx->wrap_hal.dev, 0);
+	usb_wrap_ll_phy_set_defaults(phy_ctx->wrap_hal.dev);
+#endif
+
 #if USB_WRAP_LL_EXT_PHY_SUPPORTED
 	usb_wrap_hal_phy_set_external(&phy_ctx->wrap_hal, (phy_ctx->target == USB_PHY_TARGET_EXT));
 #endif
@@ -113,6 +118,9 @@ static inline int esp32_usb_otg_enable_phy(struct phy_context_t *phy_ctx, bool e
 	LOG_MODULE_DECLARE(udc_dwc2, CONFIG_UDC_DRIVER_LOG_LEVEL);
 
 	if (enable) {
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+		usb_wrap_ll_phy_select(phy_ctx->wrap_hal.dev, 0);
+#endif
 		usb_wrap_ll_phy_enable_pad(phy_ctx->wrap_hal.dev, true);
 		LOG_DBG("PHY enabled");
 	} else {

@@ -16,6 +16,7 @@
 #include <zephyr/logging/log.h>
 #include <soc.h>
 #include <esp_clk_tree.h>
+#include <esp_private/esp_clk_tree_common.h>
 #include <hal/i2s_hal.h>
 
 #if !SOC_GDMA_SUPPORTED
@@ -35,7 +36,11 @@
 
 LOG_MODULE_REGISTER(i2s_esp32, CONFIG_I2S_LOG_LEVEL);
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_APLL
+#else
 #define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_DEFAULT
+#endif
 #define I2S_ESP32_DMA_BUFFER_MAX_SIZE 4092
 
 #define I2S_ESP32_NUM_INST_OK          DT_NUM_INST_STATUS_OKAY(espressif_esp32_i2s)
@@ -138,6 +143,18 @@ static esp_err_t i2s_esp32_calculate_clock(const struct i2s_config *i2s_cfg, uin
 		i2s_hal_clock_info->mclk = i2s_cfg->frame_clk_freq * mclk_multiple;
 		i2s_hal_clock_info->bclk_div = i2s_hal_clock_info->mclk / i2s_hal_clock_info->bclk;
 	}
+
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	if (I2S_ESP32_CLK_SRC == I2S_CLK_SRC_APLL) {
+		uint32_t real_apll = 0;
+		uint32_t target_apll = i2s_hal_clock_info->mclk * 4;
+		if (target_apll < 5303031) {
+			target_apll = 5303031;
+		}
+		esp_clk_tree_enable_src(SOC_MOD_CLK_APLL, true);
+		esp_clk_tree_src_set_freq_hz(SOC_MOD_CLK_APLL, target_apll, &real_apll);
+	}
+#endif
 
 	i2s_hal_clock_info->sclk = i2s_esp32_get_source_clk_freq(I2S_ESP32_CLK_SRC);
 	i2s_hal_clock_info->mclk_div = i2s_hal_clock_info->sclk / i2s_hal_clock_info->mclk;

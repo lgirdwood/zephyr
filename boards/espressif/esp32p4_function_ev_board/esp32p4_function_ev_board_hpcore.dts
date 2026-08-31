@@ -163,6 +163,14 @@
 	pinctrl-names = "default";
 };
 
-zephyr_udc0: &usb_otg {
+&usb_serial {
+	status = "disabled";
+};
+
+&usb_otg {
+	status = "disabled";
+};
+
+zephyr_udc0: &usb_otg_fs {
 	status = "okay";
 };
