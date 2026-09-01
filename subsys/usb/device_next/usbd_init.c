@@ -26,6 +26,20 @@ static int assign_ep_addr(const struct device *dev,
 			  uint32_t *const class_ep_bm)
 {
 	int ret = -ENODEV;
+	uint8_t req_ep = ed->bEndpointAddress;
+
+	if (req_ep != 0) {
+		uint16_t mps = sys_le16_to_cpu(ed->wMaxPacketSize);
+
+		ret = udc_ep_try_config(dev, req_ep, ed->bmAttributes, &mps, ed->bInterval);
+		if (ret == 0) {
+			LOG_DBG("using requested ep 0x%02x", req_ep);
+			ed->wMaxPacketSize = sys_cpu_to_le16(mps);
+			usbd_ep_bm_set(class_ep_bm, req_ep);
+			usbd_ep_bm_set(config_ep_bm, req_ep);
+			return 0;
+		}
+	}
 
 	for (unsigned int idx = 1; idx < 16U; idx++) {
 		uint16_t mps = sys_le16_to_cpu(ed->wMaxPacketSize);

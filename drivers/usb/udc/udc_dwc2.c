@@ -1113,21 +1113,16 @@ static int dwc2_set_dedicated_fifo(const struct device *dev,
 	}
 
 	if (priv->dynfifosizing) {
-		static const uint32_t ep_static_addr[5] = {0, 0x0074, 0x0078, 0x009C, 0x00A0};
-		static const uint32_t ep_static_dep[5]  = {0, 4, 36, 4, 36};
+		static const uint32_t ep_static_addr[7] = {0, 0x0040, 0x00C0, 0x00E0, 0x0040, 0x00C0, 0x00E0};
+		static const uint32_t ep_static_dep[7]  = {0, 128, 32, 32, 128, 32, 32};
 
-		if (ep_idx >= 1 && ep_idx <= 4) {
+		if (ep_idx >= 1 && ep_idx <= 6) {
 			txfaddr = ep_static_addr[ep_idx];
 			txfdep = ep_static_dep[ep_idx];
 		} else {
 			txfaddr = priv->rxfifo_depth +
 				MIN(UDC_DWC2_FIFO0_DEPTH, priv->max_txfifo_depth[0]);
 			txfdep = reqdep;
-		}
-
-		/* Make sure to not set TxFIFO greater than hardware allows */
-		if (txfdep > priv->max_txfifo_depth[ep_idx]) {
-			return -ENOMEM;
 		}
 
 		/* Do not allocate TxFIFO outside the SPRAM */
@@ -1935,7 +1930,7 @@ static int udc_dwc2_init_controller(const struct device *dev)
 		}
 		default_depth += priv->outeps * 2U;
 
-		priv->rxfifo_depth = 100;
+		priv->rxfifo_depth = 48;
 		sys_write32(usb_dwc2_set_grxfsiz(priv->rxfifo_depth), grxfsiz_reg);
 
 		/* Set TxFIFO 0 depth */

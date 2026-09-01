@@ -689,15 +689,17 @@
  * because the endpoints after fixup will be 0x08 and 0x88 because there are
  * only two isochronous endpoints on these devices (one IN, one OUT).
  */
+#define AS_EP_OFFSET(idx) (((idx) == 0 || (idx) == 2) ? 0 : (((idx) == 1 || (idx) == 3) ? 1 : 2))
+
 #define AS_NEXT_OUT_EP_ADDR(node)						\
 	FIRST_OUT_EP_ADDR +							\
-	FOR_EACH_AUDIOSTREAMING_INTERFACE(DT_PARENT(node),			\
-		COUNT_AS_OUT_ENDPOINTS_BEFORE_IDX, DT_NODE_CHILD_IDX(node))
+	AS_EP_OFFSET(FOR_EACH_AUDIOSTREAMING_INTERFACE(DT_PARENT(node),		\
+		COUNT_AS_OUT_ENDPOINTS_BEFORE_IDX, DT_NODE_CHILD_IDX(node)))
 
 #define AS_NEXT_IN_EP_ADDR(node)						\
 	FIRST_IN_EP_ADDR + DT_PROP(DT_PARENT(node), interrupt_endpoint) +	\
-	FOR_EACH_AUDIOSTREAMING_INTERFACE(DT_PARENT(node),			\
-		COUNT_AS_IN_ENDPOINTS_BEFORE_IDX, DT_NODE_CHILD_IDX(node))
+	AS_EP_OFFSET(FOR_EACH_AUDIOSTREAMING_INTERFACE(DT_PARENT(node),		\
+		COUNT_AS_IN_ENDPOINTS_BEFORE_IDX, DT_NODE_CHILD_IDX(node)))
 
 #define AS_DATA_EP_ADDR(node)							\
 	COND_CODE_1(AS_IS_USB_ISO_OUT(node),					\
