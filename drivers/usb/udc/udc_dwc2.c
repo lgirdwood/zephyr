@@ -1113,8 +1113,8 @@ static int dwc2_set_dedicated_fifo(const struct device *dev,
 	}
 
 	if (priv->dynfifosizing) {
-		static const uint32_t ep_static_addr[7] = {0, 0x0040, 0x00C0, 0x00E0, 0x0040, 0x00C0, 0x00E0};
-		static const uint32_t ep_static_dep[7]  = {0, 128, 32, 32, 128, 32, 32};
+		static const uint32_t ep_static_addr[7] = {0, 0x0040, 0x0080, 0x00B0, 0x0040, 0x0080, 0x00B0};
+		static const uint32_t ep_static_dep[7]  = {0, 64, 48, 48, 64, 48, 48};
 
 		if (ep_idx >= 1 && ep_idx <= 6) {
 			txfaddr = ep_static_addr[ep_idx];
