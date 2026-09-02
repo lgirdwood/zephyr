@@ -295,20 +295,13 @@ static void IRAM_ATTR dma_esp32_isr_handle_rx(const struct device *dev,
 
 	gdma_hal_clear_intr(&data->hal, rx->channel_id, GDMA_CHANNEL_DIRECTION_RX, intr_status);
 
-	if (intr_status & GDMA_LL_EVENT_RX_SUC_EOF) {
-		dma_esp32_cache_invd_data(rx);
-		status = DMA_STATUS_COMPLETE;
-		pm_unlock = true;
-	} else if (intr_status & GDMA_LL_EVENT_RX_DONE) {
-		status = DMA_STATUS_BLOCK;
-#if defined(CONFIG_SOC_SERIES_ESP32S3)
-	} else if (intr_status & GDMA_LL_EVENT_RX_WATER_MARK) {
-		status = DMA_STATUS_BLOCK;
-#endif
-	} else {
-		status = -intr_status;
-		pm_unlock = true;
+	if (!(intr_status & GDMA_LL_EVENT_RX_SUC_EOF)) {
+		return;
 	}
+
+	dma_esp32_cache_invd_data(rx);
+	status = DMA_STATUS_COMPLETE;
+	pm_unlock = true;
 
 #if CONFIG_PM
 	if (pm_unlock && rx->m2m_transfer) {
@@ -620,7 +613,7 @@ static int dma_esp32_start(const struct device *dev, uint32_t channel)
 		dma_esp32_pm_policy_state_lock_get(dev);
 #endif
 		gdma_hal_enable_intr(&data->hal, dma_channel->channel_id, GDMA_CHANNEL_DIRECTION_RX,
-				     GDMA_LL_EVENT_RX_SUC_EOF | GDMA_LL_EVENT_RX_DONE, true);
+				     GDMA_LL_EVENT_RX_SUC_EOF, true);
 		gdma_hal_enable_intr(&data->hal, dma_channel->channel_id, GDMA_CHANNEL_DIRECTION_TX,
 				     GDMA_LL_EVENT_TX_EOF, true);
 
@@ -634,7 +627,7 @@ static int dma_esp32_start(const struct device *dev, uint32_t channel)
 		if (dma_channel->dir == DMA_RX) {
 			gdma_hal_enable_intr(
 				&data->hal, dma_channel->channel_id, GDMA_CHANNEL_DIRECTION_RX,
-				GDMA_LL_EVENT_RX_SUC_EOF | GDMA_LL_EVENT_RX_DONE, true);
+				GDMA_LL_EVENT_RX_SUC_EOF, true);
 			gdma_hal_start_with_desc(&data->hal, dma_channel->channel_id,
 						 GDMA_CHANNEL_DIRECTION_RX,
 						 (intptr_t)dma_channel->desc_list);
