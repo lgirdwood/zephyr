@@ -34,9 +34,14 @@
 #error "i2s0 must be disabled if ADC_ESP32_DMA is enabled for ESP32"
 #endif
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+#include <soc/rtc.h>
+#include <soc/lpperi_struct.h>
+#endif
+
 LOG_MODULE_REGISTER(i2s_esp32, CONFIG_I2S_LOG_LEVEL);
 
-#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_XTAL
+#define I2S_ESP32_CLK_SRC             I2S_CLK_SRC_APLL
 #define I2S_ESP32_DMA_BUFFER_MAX_SIZE 4092
 
 #define I2S_ESP32_NUM_INST_OK          DT_NUM_INST_STATUS_OKAY(espressif_esp32_i2s)
@@ -106,8 +111,23 @@ uint32_t i2s_esp32_get_source_clk_freq(i2s_clock_src_t clk_src)
 {
 	uint32_t clk_freq = 0;
 
-	esp_clk_tree_src_get_freq_hz(clk_src, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_freq);
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	if (clk_src == I2S_CLK_SRC_APLL) {
+		esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_APLL, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_freq);
+		return clk_freq;
+	} else if (clk_src == I2S_CLK_SRC_XTAL) {
+		return 40000000;
+	} else if (clk_src == I2S_CLK_SRC_PLL_160M) {
+		return 160000000;
+	}
+	return 40000000;
+#else
+	esp_clk_tree_src_get_freq_hz((soc_module_clk_t)clk_src, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &clk_freq);
+	if (clk_freq == 0) {
+		clk_freq = 40000000;
+	}
 	return clk_freq;
+#endif
 }
 
 static esp_err_t i2s_esp32_calculate_clock(const struct i2s_config *i2s_cfg, uint8_t channel_length,
@@ -123,8 +143,49 @@ static esp_err_t i2s_esp32_calculate_clock(const struct i2s_config *i2s_cfg, uin
 		return ESP_ERR_INVALID_ARG;
 	}
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	if (I2S_ESP32_CLK_SRC == I2S_CLK_SRC_APLL) {
+		/* Calculate exact MCLK multiple so that APLL SCLK is within APLL range (>= 5.5 MHz) */
+		uint32_t eff_channels = (i2s_cfg->channels == 1 && (i2s_cfg->format & I2S_FMT_DATA_FORMAT_MASK) == I2S_FMT_DATA_FORMAT_I2S) ? 2 : i2s_cfg->channels;
+		uint32_t bclk = i2s_cfg->frame_clk_freq * eff_channels * channel_length;
+		uint32_t bclk_div = 2;
+		uint32_t mclk = bclk * bclk_div;
+		while (mclk * 2 < 5500000) {
+			bclk_div *= 2;
+			mclk = bclk * bclk_div;
+		}
+		i2s_hal_clock_info->bclk = bclk;
+		i2s_hal_clock_info->bclk_div = bclk_div;
+		i2s_hal_clock_info->mclk = mclk;
+		i2s_hal_clock_info->mclk_div = 2;
+
+		uint32_t target_sclk = mclk * 2;
+		uint32_t o_div = 0, sdm0 = 0, sdm1 = 0, sdm2 = 0;
+		uint32_t real_apll = rtc_clk_apll_coeff_calc(target_sclk, &o_div, &sdm0, &sdm1, &sdm2);
+		LPPERI.clk_en.ck_en_lp_i2cmst = 1;
+		rtc_clk_apll_enable(true);
+		if (real_apll) {
+			rtc_clk_apll_coeff_set(o_div, sdm0, sdm1, sdm2);
+		}
+		i2s_hal_clock_info->sclk = real_apll;
+
+		printk("[I2S APLL CLK] req_rate=%u Hz (ch=%u) -> APLL SCLK=%u Hz (real=%u Hz), MCLK=%u Hz, BCLK=%u Hz, bclk_div=%u, mclk_div=2 (o_div=%u, sdm=%u,%u,%u)\n",
+		       (unsigned int)i2s_cfg->frame_clk_freq, (unsigned int)i2s_cfg->channels, (unsigned int)target_sclk,
+		       (unsigned int)real_apll, (unsigned int)i2s_hal_clock_info->mclk,
+		       (unsigned int)i2s_hal_clock_info->bclk,
+		       (unsigned int)i2s_hal_clock_info->bclk_div,
+		       (unsigned int)o_div, (unsigned int)sdm0, (unsigned int)sdm1, (unsigned int)sdm2);
+
+		return ESP_OK;
+	}
+#endif
+
 	if (i2s_cfg->word_size == 24) {
 		mclk_multiple = 384;
+	} else if (i2s_cfg->frame_clk_freq >= 384000) {
+		mclk_multiple = 64;
+	} else if (i2s_cfg->frame_clk_freq >= 192000) {
+		mclk_multiple = 128;
 	}
 
 	if (i2s_cfg->options & I2S_OPT_FRAME_CLK_TARGET ||
@@ -140,23 +201,10 @@ static esp_err_t i2s_esp32_calculate_clock(const struct i2s_config *i2s_cfg, uin
 		i2s_hal_clock_info->bclk_div = i2s_hal_clock_info->mclk / i2s_hal_clock_info->bclk;
 	}
 
-#if defined(CONFIG_SOC_SERIES_ESP32P4)
-	if (I2S_ESP32_CLK_SRC == I2S_CLK_SRC_APLL) {
-		uint32_t real_apll = 0;
-		uint32_t target_apll = i2s_hal_clock_info->mclk * 4;
-		if (target_apll < 5303031) {
-			target_apll = 5303031;
-		}
-		esp_clk_tree_enable_src(SOC_MOD_CLK_APLL, true);
-		esp_clk_tree_src_set_freq_hz(SOC_MOD_CLK_APLL, target_apll, &real_apll);
-	}
-#endif
-
 	i2s_hal_clock_info->sclk = i2s_esp32_get_source_clk_freq(I2S_ESP32_CLK_SRC);
 	i2s_hal_clock_info->mclk_div = i2s_hal_clock_info->sclk / i2s_hal_clock_info->mclk;
 	if (i2s_hal_clock_info->mclk_div == 0) {
-		LOG_DBG("Sample rate is too large for the current clock source");
-		return ESP_ERR_INVALID_ARG;
+		i2s_hal_clock_info->mclk_div = 1;
 	}
 
 	return ESP_OK;
@@ -192,6 +240,9 @@ static void i2s_esp32_queue_drop(const struct device *dev, enum i2s_dir dir)
 static int i2s_esp32_restart_dma(const struct device *dev, enum i2s_dir dir);
 static int i2s_esp32_start_dma(const struct device *dev, enum i2s_dir dir);
 
+volatile uint32_t g_i2s_rx_cb_cnt = 0;
+volatile uint32_t g_i2s_tx_cb_cnt = 0;
+
 #if I2S_ESP32_IS_DIR_EN(rx)
 
 static void i2s_esp32_rx_stop_transfer(const struct device *dev);
@@ -203,6 +254,8 @@ static void IRAM_ATTR i2s_esp32_rx_callback(const struct device *dma_dev, void *
 static void IRAM_ATTR i2s_esp32_rx_callback(void *arg, int status)
 #endif /* SOC_GDMA_SUPPORTED */
 {
+	g_i2s_rx_cb_cnt++;
+
 	const struct device *dev = (const struct device *)arg;
 	struct i2s_esp32_data *dev_data = dev->data;
 	const struct i2s_esp32_cfg *dev_cfg = dev->config;
@@ -223,6 +276,7 @@ static void IRAM_ATTR i2s_esp32_rx_callback(void *arg, int status)
 
 #if SOC_GDMA_SUPPORTED
 	if (status < 0) {
+		printk("[RX STATUS BAD] status=%d\n", status);
 #else
 	if (status & I2S_LL_EVENT_RX_DSCR_ERR) {
 #endif /* SOC_GDMA_SUPPORTED */
@@ -280,9 +334,11 @@ static void IRAM_ATTR i2s_esp32_rx_callback(void *arg, int status)
 
 	err = k_msgq_put(&stream->data->queue, &item, K_NO_WAIT);
 	if (err < 0) {
-		LOG_DBG("RX queue full");
-		dev_data->state = I2S_STATE_ERROR;
-		goto rx_disable;
+		struct queue_item drop_item;
+		if (k_msgq_get(&stream->data->queue, &drop_item, K_NO_WAIT) == 0) {
+			k_mem_slab_free(stream->data->i2s_cfg.mem_slab, drop_item.buffer);
+			k_msgq_put(&stream->data->queue, &item, K_NO_WAIT);
+		}
 	}
 
 	if (dev_data->state == I2S_STATE_STOPPING) {
@@ -295,9 +351,18 @@ static void IRAM_ATTR i2s_esp32_rx_callback(void *arg, int status)
 
 	err = k_mem_slab_alloc(stream->data->i2s_cfg.mem_slab, &stream->data->mem_block, K_NO_WAIT);
 	if (err < 0) {
-		LOG_DBG("RX failed to allocate memory from slab: %i:", err);
-		dev_data->state = I2S_STATE_ERROR;
-		goto rx_disable;
+		struct queue_item drop_item;
+		if (k_msgq_get(&stream->data->queue, &drop_item, K_NO_WAIT) == 0) {
+			stream->data->mem_block = drop_item.buffer;
+			err = 0;
+		} else if (stream->data->mem_block != NULL) {
+			/* Buffer pool transiently exhausted: reuse current buffer to keep DMA streaming */
+			err = 0;
+		} else {
+			LOG_DBG("RX failed to allocate memory from slab: %i:", err);
+			dev_data->state = I2S_STATE_ERROR;
+			goto rx_disable;
+		}
 	}
 	stream->data->mem_block_len = stream->data->i2s_cfg.block_size;
 
@@ -314,6 +379,7 @@ static void IRAM_ATTR i2s_esp32_rx_callback(void *arg, int status)
 	return;
 
 rx_disable:
+	printk("[RX DISABLED] state=%d, err=%d\n", (int)dev_data->state, err);
 	i2s_esp32_rx_stop_transfer(dev);
 }
 
@@ -378,6 +444,8 @@ static int i2s_esp32_rx_start_transfer(const struct device *dev)
 	esp_intr_enable(stream->data->irq_handle);
 #endif /* !SOC_GDMA_SUPPORTED */
 
+	printk("[RX START] err=%d, block=%u, dma_pending=%d\n",
+	       err, stream->data->i2s_cfg.block_size, stream->data->dma_pending);
 	stream->data->transferring = true;
 
 	return 0;
@@ -388,6 +456,7 @@ static void IRAM_ATTR i2s_esp32_rx_stop_transfer(const struct device *dev)
 	const struct i2s_esp32_cfg *dev_cfg = dev->config;
 	const struct i2s_esp32_stream *stream = &dev_cfg->rx;
 
+	printk("[RX STOP TRANSFER CALLED]\n");
 #if SOC_GDMA_SUPPORTED
 	dma_stop(stream->conf->dma_dev, stream->conf->dma_channel);
 #else
@@ -472,6 +541,8 @@ static void IRAM_ATTR i2s_esp32_tx_callback(const struct device *dma_dev, void *
 static void IRAM_ATTR i2s_esp32_tx_callback(void *arg, int status)
 #endif /* SOC_GDMA_SUPPORTED */
 {
+	g_i2s_tx_cb_cnt++;
+
 	const struct device *dev = (const struct device *)arg;
 	struct i2s_esp32_data *dev_data = dev->data;
 	const struct i2s_esp32_cfg *const dev_cfg = dev->config;
@@ -733,7 +804,9 @@ int IRAM_ATTR i2s_esp32_config_dma(const struct device *dev, enum i2s_dir dir,
 	}
 	dma_cfg.user_data = (void *)dev;
 	dma_cfg.dma_slot =
-		dev_cfg->unit == 0 ? ESP_GDMA_TRIG_PERIPH_I2S0 : ESP_GDMA_TRIG_PERIPH_I2S1;
+		dev_cfg->unit == 0 ? ESP_GDMA_TRIG_PERIPH_I2S0 :
+		dev_cfg->unit == 1 ? ESP_GDMA_TRIG_PERIPH_I2S1 :
+		ESP_GDMA_TRIG_PERIPH_I2S2;
 	dma_cfg.block_count = 1;
 	dma_cfg.head_block = &dma_blk;
 
@@ -1187,8 +1260,9 @@ static int i2s_esp32_config_check(const struct device *dev, enum i2s_dir dir,
 		return -EINVAL;
 	}
 
-	if (i2s_cfg->channels != 2) {
-		LOG_DBG("Currently only 2 channels are supported");
+	if (i2s_cfg->channels != 1 && i2s_cfg->channels != 2 &&
+	    i2s_cfg->channels != 6 && i2s_cfg->channels != 8) {
+		LOG_DBG("Currently only 1, 2, 6, 8 channels are supported");
 		return -EINVAL;
 	}
 
@@ -1283,8 +1357,15 @@ static int i2s_esp32_configure(const struct device *dev, enum i2s_dir dir,
 		return -EINVAL;
 	}
 
+	if (i2s_cfg->channels == 1) {
+		slot_cfg.slot_mode = I2S_SLOT_MODE_MONO;
+		slot_cfg.std.slot_mask = I2S_STD_SLOT_LEFT;
+	} else {
+		slot_cfg.slot_mode = I2S_SLOT_MODE_STEREO;
+		slot_cfg.std.slot_mask = I2S_STD_SLOT_BOTH;
+	}
+
 	slot_cfg.std.ws_width = slot_cfg.slot_bit_width;
-	slot_cfg.std.slot_mask = I2S_STD_SLOT_BOTH;
 #if SOC_I2S_HW_VERSION_1
 	slot_cfg.std.msb_right = true;
 #elif SOC_I2S_HW_VERSION_2
@@ -1313,6 +1394,22 @@ static int i2s_esp32_configure(const struct device *dev, enum i2s_dir dir,
 		i2s_hal_set_rx_clock(hal, &i2s_hal_clock_info, I2S_ESP32_CLK_SRC, NULL);
 		i2s_ll_rx_enable_std(hal->dev);
 
+		if (i2s_cfg->channels > 2) {
+			hal->dev->rx_conf1.rx_tdm_chan_bits = slot_cfg.slot_bit_width - 1;
+			hal->dev->rx_conf1.rx_half_sample_bits = (i2s_cfg->channels * slot_cfg.slot_bit_width) / 2 - 1;
+			hal->dev->rx_tdm_ctrl.rx_tdm_tot_chan_num = i2s_cfg->channels - 1;
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan0_en = 1;
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan1_en = 1;
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan2_en = (i2s_cfg->channels > 2);
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan3_en = (i2s_cfg->channels > 3);
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan4_en = (i2s_cfg->channels > 4);
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan5_en = (i2s_cfg->channels > 5);
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan6_en = (i2s_cfg->channels > 6);
+			hal->dev->rx_tdm_ctrl.rx_tdm_pdm_chan7_en = (i2s_cfg->channels > 7);
+			hal->dev->rx_conf.rx_tdm_en = 1;
+			hal->dev->rx_conf.rx_update = 1;
+		}
+
 		stream = &dev_cfg->rx;
 		memcpy(&stream->data->i2s_cfg, i2s_cfg, sizeof(struct i2s_config));
 		stream->data->configured = true;
@@ -1324,6 +1421,22 @@ static int i2s_esp32_configure(const struct device *dev, enum i2s_dir dir,
 		i2s_hal_std_set_tx_slot(hal, is_target, &slot_cfg);
 		i2s_hal_set_tx_clock(hal, &i2s_hal_clock_info, I2S_ESP32_CLK_SRC, NULL);
 		i2s_ll_tx_enable_std(hal->dev);
+
+		if (i2s_cfg->channels > 2) {
+			hal->dev->tx_conf1.tx_tdm_chan_bits = slot_cfg.slot_bit_width - 1;
+			hal->dev->tx_conf1.tx_half_sample_bits = (i2s_cfg->channels * slot_cfg.slot_bit_width) / 2 - 1;
+			hal->dev->tx_tdm_ctrl.tx_tdm_tot_chan_num = i2s_cfg->channels - 1;
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan0_en = 1;
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan1_en = 1;
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan2_en = (i2s_cfg->channels > 2);
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan3_en = (i2s_cfg->channels > 3);
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan4_en = (i2s_cfg->channels > 4);
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan5_en = (i2s_cfg->channels > 5);
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan6_en = (i2s_cfg->channels > 6);
+			hal->dev->tx_tdm_ctrl.tx_tdm_chan7_en = (i2s_cfg->channels > 7);
+			hal->dev->tx_conf.tx_tdm_en = 1;
+			hal->dev->tx_conf.tx_update = 1;
+		}
 
 		stream = &dev_cfg->tx;
 		memcpy(&stream->data->i2s_cfg, i2s_cfg, sizeof(struct i2s_config));
@@ -1513,14 +1626,15 @@ static int i2s_esp32_trigger(const struct device *dev, enum i2s_dir dir, enum i2
 		irq_unlock(key);
 		break;
 	case I2S_TRIGGER_DROP:
-		if (dev_data->state == I2S_STATE_RUNNING && dev_data->active_dir != dir) {
+		if (dev_data->state == I2S_STATE_RUNNING &&
+		    (dev_data->active_dir != dir && dir != I2S_DIR_BOTH)) {
 			LOG_DBG("Trigger dir (%d) different from active dir (%d)", dir,
 				dev_data->active_dir);
 			return -EINVAL;
 		}
 
 		key = irq_lock();
-		i2s_esp32_stop_transfer(dev, dir);
+		i2s_esp32_stop_transfer(dev, (dir == I2S_DIR_BOTH) ? dev_data->active_dir : dir);
 		i2s_esp32_queue_drop(dev, dir);
 		dev_data->state = I2S_STATE_READY;
 		irq_unlock(key);
@@ -1603,12 +1717,18 @@ static int i2s_esp32_write(const struct device *dev, void *mem_block, size_t siz
 	}
 
 	if (state != I2S_STATE_RUNNING && state != I2S_STATE_READY) {
-		LOG_DBG("Invalid state: %d", (int)state);
+		static int wr_err_cnt = 0;
+		if (++wr_err_cnt <= 5) {
+			printk("[I2S WRITE ERR] state=%d\n", (int)state);
+		}
 		return -EIO;
 	}
 
 	if (size > stream->data->i2s_cfg.block_size) {
-		LOG_DBG("Max write size is: %u", stream->data->i2s_cfg.block_size);
+		static int wr_sz_cnt = 0;
+		if (++wr_sz_cnt <= 5) {
+			printk("[I2S WRITE ERR] size=%zu > cfg=%u\n", size, stream->data->i2s_cfg.block_size);
+		}
 		return -EIO;
 	}
 
