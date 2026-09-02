@@ -473,7 +473,9 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 		/* Queue transfer on next SOF. TODO: allow stack to explicitly
 		 * specify on which (micro-)frame the data should be sent.
 		 */
-		if (priv->sof_num & 1) {
+		bool is_odd = (udc_device_speed(dev) == UDC_BUS_SPEED_HS) ?
+			      ((priv->sof_num >> 3) & 1) : (priv->sof_num & 1);
+		if (is_odd) {
 			diepctl |= USB_DWC2_DEPCTL_SETEVENFR;
 		} else {
 			diepctl |= USB_DWC2_DEPCTL_SETODDFR;
@@ -600,11 +602,7 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 			return;
 		}
 
-		if (priv->sof_num & 1) {
-			doepctl |= USB_DWC2_DEPCTL_SETODDFR;
-		} else {
-			doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
-		}
+		doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
 	} else {
 		xfersize = net_buf_tailroom(buf);
 
@@ -2526,25 +2524,11 @@ static inline void dwc2_handle_out_xfercompl(const struct device *dev,
 		uint32_t pkts;
 		bool valid;
 
-		pkts = usb_dwc2_get_doeptsizn_pktcnt(priv->rx_siz[ep_idx]) -
-			usb_dwc2_get_doeptsizn_pktcnt(doeptsiz);
-		if (udc_dwc2_device_speed(dev) == UDC_BUS_SPEED_HS) {
-			switch (usb_dwc2_get_doeptsizn_rxdpid(doeptsiz)) {
-			case USB_DWC2_DOEPTSIZN_RXDPID_DATA0:
-				valid = (pkts == 1);
-				break;
-			case USB_DWC2_DOEPTSIZN_RXDPID_DATA1:
-				valid = (pkts == 2);
-				break;
-			case USB_DWC2_DOEPTSIZN_RXDPID_DATA2:
-				valid = (pkts == 3);
-				break;
-			case USB_DWC2_DOEPTSIZN_RXDPID_MDATA:
-			default:
-				valid = false;
-				break;
-			}
+		if (dwc2_in_completer_mode(dev)) {
+			valid = true;
 		} else {
+			pkts = usb_dwc2_get_doeptsizn_pktcnt(priv->rx_siz[ep_idx]) -
+				usb_dwc2_get_doeptsizn_pktcnt(doeptsiz);
 			valid = (pkts >= 1);
 		}
 

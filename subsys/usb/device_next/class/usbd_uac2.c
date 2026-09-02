@@ -46,7 +46,7 @@ LOG_MODULE_REGISTER(usbd_uac2, CONFIG_USBD_UAC2_LOG_LEVEL);
  * "wasted memory" here is likely to be smaller than the memory overhead for
  * more complex "only as much as needed" schemes (e.g. heap).
  */
-UDC_BUF_POOL_DEFINE(uac2_pool, UAC2_NUM_EP_BUFFERS, 6,
+UDC_BUF_POOL_DEFINE(uac2_pool, 64, 6,
 		    sizeof(struct udc_buf_info), NULL);
 
 /* 5.2.2 Control Request Layout */
@@ -410,6 +410,7 @@ static void write_explicit_feedback(struct usbd_class_data *const c_data,
 				    uint8_t ep, uint8_t terminal)
 {
 	const struct device *dev = usbd_class_get_private(c_data);
+	const struct uac2_cfg *cfg = dev->config;
 	struct usbd_context *uds_ctx = usbd_class_get_ctx(c_data);
 	struct uac2_ctx *ctx = dev->data;
 	struct net_buf *buf;
@@ -431,7 +432,7 @@ static void write_explicit_feedback(struct usbd_class_data *const c_data,
 
 	fb_value = ctx->ops->feedback_cb(dev, terminal, ctx->user_data);
 
-	if (usbd_bus_speed(uds_ctx) == USBD_SPEED_FS) {
+	if (cfg->hs_descriptors == NULL || usbd_bus_speed(uds_ctx) == USBD_SPEED_FS) {
 		if (IS_ENABLED(CONFIG_USBD_UAC2_FS_WINDOWS_WORKAROUND)) {
 			/* Convert Q10.14 to Q16.16 */
 			net_buf_add_le32(buf, fb_value << 2);
@@ -854,10 +855,10 @@ static int uac2_request(struct usbd_class_data *const c_data, struct net_buf *bu
 	}
 
 	if (USB_EP_DIR_IS_OUT(ep)) {
-		ctx->ops->data_recv_cb(dev, terminal, buf->__buf, buf->len,
+		ctx->ops->data_recv_cb(dev, terminal, buf->data, buf->len,
 				       ctx->user_data);
 	} else if (!is_feedback) {
-		ctx->ops->buf_release_cb(dev, terminal, buf->__buf, ctx->user_data);
+		ctx->ops->buf_release_cb(dev, terminal, buf->data, ctx->user_data);
 	}
 
 	usbd_ep_buf_free(uds_ctx, buf);
