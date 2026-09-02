@@ -15,6 +15,11 @@ properties:
     type: phandle
     description: Unit or Terminal to which this Feature Unit is connected
 
+  string-id:
+    type: int
+    default: 0
+    description: Index of string descriptor describing this Feature Unit
+
   mute-control:
     type: string-array
     description: Mute Control capabilities

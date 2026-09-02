@@ -333,7 +333,7 @@
 	ENTITY_ID(entity),				/* bUnitID */		\
 	CONNECTED_ENTITY_ID(entity, data_source),	/* bSourceID */		\
 	FEATURE_UNIT_CONTROLS_ARRAYS(entity),		/* bmaControls 0..ch */	\
-	0x00,						/* iFeature */
+	DT_PROP_OR(entity, string_id, 0),		/* iFeature */
 
 #define ENTITY_HEADER(entity)							\
 	IF_ENABLED(DT_NODE_HAS_COMPAT(entity, zephyr_uac2_clock_source), (	\
