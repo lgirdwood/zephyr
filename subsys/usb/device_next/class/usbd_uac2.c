@@ -72,6 +72,7 @@ typedef enum {
 	ENTITY_TYPE_CLOCK_SOURCE,
 	ENTITY_TYPE_INPUT_TERMINAL,
 	ENTITY_TYPE_OUTPUT_TERMINAL,
+	ENTITY_TYPE_FEATURE_UNIT,
 } entity_type_t;
 
 static size_t clock_frequencies(struct usbd_class_data *const c_data,
@@ -772,6 +773,63 @@ static int set_clock_source_request(struct usbd_class_data *const c_data,
 	return -ENOTSUP;
 }
 
+/* A.17.7 Feature Unit Control Selectors */
+#define FU_CONTROL_UNDEFINED		0x00
+#define FU_MUTE_CONTROL			0x01
+#define FU_VOLUME_CONTROL		0x02
+
+static struct net_buf *get_feature_unit_request(struct usbd_class_data *const c_data,
+						const struct usb_setup_packet *const setup)
+{
+	const struct device *dev = usbd_class_get_private(c_data);
+	struct uac2_ctx *ctx = dev->data;
+	const uint32_t entity_id = CONTROL_ENTITY_ID(setup);
+	const uint8_t ch = CONTROL_CHANNEL_NUMBER(setup);
+
+	if (CONTROL_SELECTOR(setup) == FU_MUTE_CONTROL) {
+		if (CONTROL_ATTRIBUTE(setup) == CUR) {
+			bool mute = false;
+			if (ctx->ops && ctx->ops->get_feature_mute) {
+				ctx->ops->get_feature_mute(dev, entity_id, ch, &mute, ctx->user_data);
+			}
+			struct net_buf *buf = usbd_ep_ctrl_data_in_alloc(usbd_class_get_ctx(c_data), 1);
+			if (buf) {
+				uint8_t val = mute ? 1 : 0;
+				net_buf_add_mem(buf, &val, 1);
+			}
+			return buf;
+		}
+	}
+	return NULL;
+}
+
+static int set_feature_unit_request(struct usbd_class_data *const c_data,
+				    const struct usb_setup_packet *const setup,
+				    const struct net_buf *const buf)
+{
+	const struct device *dev = usbd_class_get_private(c_data);
+	struct uac2_ctx *ctx = dev->data;
+	const uint32_t entity_id = CONTROL_ENTITY_ID(setup);
+	const uint8_t ch = CONTROL_CHANNEL_NUMBER(setup);
+
+	if (CONTROL_SELECTOR(setup) == FU_MUTE_CONTROL) {
+		if (CONTROL_ATTRIBUTE(setup) == CUR) {
+			if (buf == NULL) {
+				if (setup->wLength == 1) {
+					return 0;
+				}
+				return -EINVAL;
+			}
+			bool mute = (buf->data[0] != 0);
+			if (ctx->ops && ctx->ops->set_feature_mute) {
+				return ctx->ops->set_feature_mute(dev, entity_id, ch, mute, ctx->user_data);
+			}
+			return 0;
+		}
+	}
+	return -ENOTSUP;
+}
+
 static int uac2_control_to_dev(struct usbd_class_data *const c_data,
 			       const struct usb_setup_packet *const setup,
 			       const struct net_buf *const buf)
@@ -786,6 +844,9 @@ static int uac2_control_to_dev(struct usbd_class_data *const c_data,
 		entity_type = id_type(c_data, CONTROL_ENTITY_ID(setup));
 		if (entity_type == ENTITY_TYPE_CLOCK_SOURCE) {
 			return set_clock_source_request(c_data, setup, buf);
+		}
+		if (entity_type == ENTITY_TYPE_FEATURE_UNIT) {
+			return set_feature_unit_request(c_data, setup, buf);
 		}
 	}
 
@@ -806,6 +867,9 @@ static struct net_buf *uac2_control_to_host(struct usbd_class_data *const c_data
 		entity_type = id_type(c_data, CONTROL_ENTITY_ID(setup));
 		if (entity_type == ENTITY_TYPE_CLOCK_SOURCE) {
 			return get_clock_source_request(c_data, setup);
+		}
+		if (entity_type == ENTITY_TYPE_FEATURE_UNIT) {
+			return get_feature_unit_request(c_data, setup);
 		}
 	}
 
@@ -993,6 +1057,9 @@ struct usbd_class_api uac2_api = {
 	))									\
 	IF_ENABLED(DT_NODE_HAS_COMPAT(node, zephyr_uac2_output_terminal), (	\
 		ENTITY_TYPE_OUTPUT_TERMINAL					\
+	))									\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(node, zephyr_uac2_feature_unit), (	\
+		ENTITY_TYPE_FEATURE_UNIT					\
 	))									\
 	IF_ENABLED(DT_NODE_HAS_COMPAT(node, zephyr_uac2_audio_streaming), (	\
 		ENTITY_TYPE_INVALID						\

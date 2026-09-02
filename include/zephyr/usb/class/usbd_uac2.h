@@ -166,6 +166,16 @@ struct uac2_ops {
 	 */
 	int (*set_sample_rate)(const struct device *dev, uint8_t clock_id,
 			       uint32_t rate, void *user_data);
+	/**
+	 * @brief Set Feature Unit Mute / Mode switch (ALSA kcontrol)
+	 */
+	int (*set_feature_mute)(const struct device *dev, uint8_t entity_id,
+				uint8_t channel, bool mute, void *user_data);
+	/**
+	 * @brief Get Feature Unit Mute / Mode switch (ALSA kcontrol)
+	 */
+	int (*get_feature_mute)(const struct device *dev, uint8_t entity_id,
+				uint8_t channel, bool *mute, void *user_data);
 };
 
 /**
