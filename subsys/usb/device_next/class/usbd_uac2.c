@@ -90,6 +90,8 @@ struct uac2_ctx {
 	atomic_t as_double;
 	uint32_t fb_queued;
 	uint32_t fb_double;
+	uint32_t sof_num;
+	uint32_t last_dr_sof[8];
 };
 
 /* UAC2 device constant data */
@@ -513,6 +515,7 @@ void uac2_update(struct usbd_class_data *const c_data,
 	}
 
 	atomic_set_bit(&ctx->as_active, as_idx);
+	ctx->last_dr_sof[as_idx] = ctx->sof_num;
 
 	data_ep = get_as_data_ep(c_data, as_idx);
 	/* External interfaces (i.e. NULL data_ep) do not have alternate
@@ -932,6 +935,7 @@ static int uac2_request(struct usbd_class_data *const c_data, struct net_buf *bu
 
 	/* Reschedule the read or explicit feedback write */
 	if (USB_EP_DIR_IS_OUT(ep)) {
+		ctx->last_dr_sof[as_idx] = ctx->sof_num;
 		schedule_iso_out_read(c_data, ep, mps, terminal);
 	} else if (is_feedback) {
 		write_explicit_feedback(c_data, ep, cfg->as_terminals[as_idx]);
@@ -949,6 +953,7 @@ static void uac2_sof(struct usbd_class_data *const c_data)
 	struct uac2_ctx *ctx = dev->data;
 	int as_idx;
 
+	ctx->sof_num++;
 	ctx->ops->sof_cb(dev, ctx->user_data);
 
 	for (as_idx = 0; as_idx < cfg->num_ifaces; as_idx++) {
@@ -958,6 +963,16 @@ static void uac2_sof(struct usbd_class_data *const c_data)
 		 */
 		data_ep = get_as_data_ep(c_data, as_idx);
 		if (data_ep && USB_EP_DIR_IS_OUT(data_ep->bEndpointAddress)) {
+			/* Staleness recovery: if double-queued for >64 SOFs without
+			 * a completion, the DWC2 ISO OUT deadlock has occurred.
+			 * Force-clear the queue bits so schedule_iso_out_read can
+			 * re-arm the endpoint.
+			 */
+			if (atomic_test_bit(&ctx->as_double, as_idx) &&
+			    (ctx->sof_num - ctx->last_dr_sof[as_idx]) > 2000) {
+				atomic_clear_bit(&ctx->as_queued, as_idx);
+				atomic_clear_bit(&ctx->as_double, as_idx);
+			}
 			schedule_iso_out_read(c_data, data_ep->bEndpointAddress,
 				sys_le16_to_cpu(data_ep->wMaxPacketSize),
 				cfg->as_terminals[as_idx]);
