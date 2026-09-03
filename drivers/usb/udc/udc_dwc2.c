@@ -278,6 +278,10 @@ static void dwc2_set_txf(const struct device *dev, const uint32_t f_idx,
 }
 
 /* Enable/disable endpoint interrupt */
+
+volatile uint32_t g_dwc2_rxflvl_ep1_cnt = 0;
+volatile uint32_t g_dwc2_xfercompl_ep1_cnt = 0;
+
 static void dwc2_set_epint(const struct device *dev,
 			   struct udc_ep_config *const cfg, const bool enabled)
 {
@@ -602,7 +606,11 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 			return;
 		}
 
-		doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
+		if ((priv->sof_num + 1) & 1) {
+			doepctl |= USB_DWC2_DEPCTL_SETODDFR;
+		} else {
+			doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
+		}
 	} else {
 		xfersize = net_buf_tailroom(buf);
 
@@ -2368,7 +2376,10 @@ static inline void dwc2_handle_rxflvl(const struct device *dev)
 		break;
 	case USB_DWC2_GRXSTSR_PKTSTS_OUT_DATA:
 		ep_cfg = udc_get_ep_cfg(dev, ep);
-
+		if (ep == 1) {
+			extern volatile uint32_t g_dwc2_rxflvl_ep1_cnt;
+			g_dwc2_rxflvl_ep1_cnt++;
+		}
 		buf = udc_buf_peek(ep_cfg);
 		/* RxFIFO data must be retrieved even when buf is NULL */
 		dwc2_read_fifo(dev, ep, buf, bcnt);
@@ -2621,6 +2632,10 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 		}
 
 		if (status & USB_DWC2_DOEPINT_XFERCOMPL) {
+			if (n == 1) {
+				extern volatile uint32_t g_dwc2_xfercompl_ep1_cnt;
+				g_dwc2_xfercompl_ep1_cnt++;
+			}
 			dwc2_handle_out_xfercompl(dev, n);
 		}
 
