@@ -44,6 +44,8 @@ comment "Device Drivers"
 # zephyr-keep-sorted-start
 source "drivers/dai/amd/sdw/Kconfig.acp_sdw_dai"
 source "drivers/dai/amd/tdm/Kconfig.acp_tdm_dai"
+source "drivers/dai/espressif/i2s/Kconfig.i2s"
+source "drivers/dai/espressif/pdm/Kconfig.pdm"
 source "drivers/dai/intel/alh/Kconfig.alh"
 source "drivers/dai/intel/dmic/Kconfig.dmic"
 source "drivers/dai/intel/hda/Kconfig.hda"

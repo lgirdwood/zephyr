@@ -85,6 +85,7 @@ static int get_m2m_periph_id(void)
 }
 
 struct dma_esp32_data {
+	struct dma_context ctx;
 	gdma_hal_context_t hal;
 #if defined(SOC_AXI_GDMA_SUPPORTED)
 	bool is_axi;
@@ -937,12 +938,37 @@ static int dma_esp32_init(const struct device *dev)
 	return 0;
 }
 
+static int dma_esp32_get_attribute(const struct device *dev, uint32_t type, uint32_t *value)
+{
+	struct dma_esp32_config *config = (struct dma_esp32_config *)dev->config;
+
+	switch (type) {
+	case DMA_ATTR_BUFFER_ADDRESS_ALIGNMENT:
+		*value = config->sram_alignment ? config->sram_alignment : 64;
+		break;
+	case DMA_ATTR_BUFFER_SIZE_ALIGNMENT:
+		*value = 4;
+		break;
+	case DMA_ATTR_COPY_ALIGNMENT:
+		*value = 4;
+		break;
+	case DMA_ATTR_MAX_BLOCK_COUNT:
+		*value = 16;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static DEVICE_API(dma, dma_esp32_api) = {
 	.config = dma_esp32_config,
 	.start = dma_esp32_start,
 	.stop = dma_esp32_stop,
 	.get_status = dma_esp32_get_status,
 	.reload = dma_esp32_reload,
+	.get_attribute = dma_esp32_get_attribute,
 };
 
 #if DMA_ESP32_SHARED_IRQ
@@ -1042,7 +1068,13 @@ static void *irq_handlers[] = {
 		.clock_subsys =                                              \
 			(void *)DT_INST_CLOCKS_CELL(idx, offset),            \
 	};                                                                   \
+	ATOMIC_DEFINE(dma_atomic_##idx, DT_INST_PROP(idx, dma_channels));    \
 	static struct dma_esp32_data dma_data_##idx = {                      \
+		.ctx = {                                                     \
+			.magic = DMA_MAGIC,                                  \
+			.atomic = dma_atomic_##idx,                          \
+			.dma_channels = DT_INST_PROP(idx, dma_channels),     \
+		},                                                           \
 		.hal = {                                                     \
 			.dev = (void *)DT_INST_REG_ADDR(idx),                \
 		},                                                           \

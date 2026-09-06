@@ -527,6 +527,9 @@ void uac2_update(struct usbd_class_data *const c_data,
 		schedule_iso_out_read(c_data, data_ep->bEndpointAddress,
 				      sys_le16_to_cpu(data_ep->wMaxPacketSize),
 				      cfg->as_terminals[as_idx]);
+		schedule_iso_out_read(c_data, data_ep->bEndpointAddress,
+				      sys_le16_to_cpu(data_ep->wMaxPacketSize),
+				      cfg->as_terminals[as_idx]);
 
 		fb_ep = get_as_feedback_ep(c_data, as_idx);
 		if (fb_ep) {
@@ -577,6 +580,87 @@ static uint32_t find_closest(const uint32_t input, const uint32_t *values,
 	} else {
 		return values[i];
 	}
+}
+
+/* Table 5-4: 2-byte Control CUR Parameter Block */
+static struct net_buf *layout2_cur_response(struct usbd_class_data *const c_data,
+					    uint16_t length, const int16_t value)
+{
+	struct net_buf *buf;
+	uint8_t tmp[2];
+
+	length = MIN(length, 2);
+	buf = usbd_ep_ctrl_data_in_alloc(usbd_class_get_ctx(c_data), length);
+	if (buf == NULL) {
+		return NULL;
+	}
+
+	/* wCUR */
+	sys_put_le16((uint16_t)value, tmp);
+	net_buf_add_mem(buf, tmp, length);
+
+	return buf;
+}
+
+static int layout2_cur_request(const struct net_buf *const buf, int16_t *out)
+{
+	uint8_t tmp[2];
+
+	if (buf->len != 2) {
+		return -EINVAL;
+	}
+
+	memcpy(tmp, buf->data, sizeof(tmp));
+	*out = (int16_t)sys_get_le16(tmp);
+	return 0;
+}
+
+/* Table 5-5: 2-byte Control RANGE Parameter Block */
+static struct net_buf *layout2_range_response(struct usbd_class_data *const c_data,
+					      uint16_t length,
+					      const int16_t *min, const int16_t *max,
+					      const int16_t *res, int n)
+{
+	struct net_buf *buf;
+	uint16_t to_add;
+	uint8_t tmp[2];
+	int i;
+	int item;
+
+	/* 2 (wNumSubRanges) + 6 (wMIN, wMAX, wRES) * n */
+	length = MIN(2 + 6 * n, length);
+	buf = usbd_ep_ctrl_data_in_alloc(usbd_class_get_ctx(c_data), length);
+	if (buf == NULL) {
+		return NULL;
+	}
+
+	/* wNumSubRanges */
+	sys_put_le16(n, tmp);
+	to_add = MIN(length, 2);
+	net_buf_add_mem(buf, tmp, to_add);
+	length -= to_add;
+
+	i = item = 0;
+	while ((length > 0) && (i < n)) {
+		to_add = MIN(length, 2);
+		if (item == 0) {
+			sys_put_le16((uint16_t)min[i], tmp);
+		} else if (item == 1) {
+			sys_put_le16((uint16_t)max[i], tmp);
+		} else {
+			sys_put_le16((uint16_t)res[i], tmp);
+		}
+		net_buf_add_mem(buf, tmp, to_add);
+		length -= to_add;
+
+		item++;
+		if (item == 3) {
+			item = 0;
+			i++;
+		}
+	}
+
+	return buf;
 }
 
 /* Table 5-6: 4-byte Control CUR Parameter Block */
@@ -802,6 +886,19 @@ static struct net_buf *get_feature_unit_request(struct usbd_class_data *const c_
 			}
 			return buf;
 		}
+	} else if (CONTROL_SELECTOR(setup) == FU_VOLUME_CONTROL) {
+		if (CONTROL_ATTRIBUTE(setup) == CUR) {
+			int16_t vol = 0;
+			if (ctx->ops && ctx->ops->get_feature_volume) {
+				ctx->ops->get_feature_volume(dev, entity_id, ch, &vol, ctx->user_data);
+			}
+			return layout2_cur_response(c_data, setup->wLength, vol);
+		} else if (CONTROL_ATTRIBUTE(setup) == RANGE) {
+			static const int16_t min_vol = -23040; /* -90.0 dB (in 1/256 dB) */
+			static const int16_t max_vol = 0;      /* 0.0 dB */
+			static const int16_t res_vol = 256;    /* 1.0 dB */
+			return layout2_range_response(c_data, setup->wLength, &min_vol, &max_vol, &res_vol, 1);
+		}
 	}
 	return NULL;
 }
@@ -826,6 +923,24 @@ static int set_feature_unit_request(struct usbd_class_data *const c_data,
 			bool mute = (buf->data[0] != 0);
 			if (ctx->ops && ctx->ops->set_feature_mute) {
 				return ctx->ops->set_feature_mute(dev, entity_id, ch, mute, ctx->user_data);
+			}
+			return 0;
+		}
+	} else if (CONTROL_SELECTOR(setup) == FU_VOLUME_CONTROL) {
+		if (CONTROL_ATTRIBUTE(setup) == CUR) {
+			if (buf == NULL) {
+				if (setup->wLength == 2) {
+					return 0;
+				}
+				return -EINVAL;
+			}
+			int16_t vol = 0;
+			int err = layout2_cur_request(buf, &vol);
+			if (err) {
+				return err;
+			}
+			if (ctx->ops && ctx->ops->set_feature_volume) {
+				return ctx->ops->set_feature_volume(dev, entity_id, ch, vol, ctx->user_data);
 			}
 			return 0;
 		}
@@ -925,7 +1040,7 @@ static int uac2_request(struct usbd_class_data *const c_data, struct net_buf *bu
 		ctx->ops->data_recv_cb(dev, terminal, buf->data, buf->len,
 				       ctx->user_data);
 	} else if (!is_feedback) {
-		ctx->ops->buf_release_cb(dev, terminal, buf->data, ctx->user_data);
+		ctx->ops->buf_release_cb(dev, terminal, buf->__buf, ctx->user_data);
 	}
 
 	usbd_ep_buf_free(uds_ctx, buf);
@@ -963,16 +1078,6 @@ static void uac2_sof(struct usbd_class_data *const c_data)
 		 */
 		data_ep = get_as_data_ep(c_data, as_idx);
 		if (data_ep && USB_EP_DIR_IS_OUT(data_ep->bEndpointAddress)) {
-			/* Staleness recovery: if double-queued for >64 SOFs without
-			 * a completion, the DWC2 ISO OUT deadlock has occurred.
-			 * Force-clear the queue bits so schedule_iso_out_read can
-			 * re-arm the endpoint.
-			 */
-			if (atomic_test_bit(&ctx->as_double, as_idx) &&
-			    (ctx->sof_num - ctx->last_dr_sof[as_idx]) > 2000) {
-				atomic_clear_bit(&ctx->as_queued, as_idx);
-				atomic_clear_bit(&ctx->as_double, as_idx);
-			}
 			schedule_iso_out_read(c_data, data_ep->bEndpointAddress,
 				sys_le16_to_cpu(data_ep->wMaxPacketSize),
 				cfg->as_terminals[as_idx]);

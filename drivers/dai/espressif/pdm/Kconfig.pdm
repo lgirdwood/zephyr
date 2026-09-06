@@ -1,0 +1,10 @@
+# Copyright (c) 2026 Espressif Systems / SOF Project
+# SPDX-License-Identifier: Apache-2.0
+
+config DAI_ESPRESSIF_PDM
+	bool "Espressif ESP32 DAI PDM Driver"
+	default y
+	depends on DT_HAS_ESPRESSIF_ESP32_DAI_PDM_ENABLED
+	select PINCTRL
+	help
+	  Enable DAI driver for Espressif ESP32 PDM Sigma-Delta Modulator / Demodulator.

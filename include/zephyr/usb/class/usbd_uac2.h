@@ -176,6 +176,16 @@ struct uac2_ops {
 	 */
 	int (*get_feature_mute)(const struct device *dev, uint8_t entity_id,
 				uint8_t channel, bool *mute, void *user_data);
+	/**
+	 * @brief Set Feature Unit Volume (ALSA kcontrol in 1/256 dB Q8.8 format)
+	 */
+	int (*set_feature_volume)(const struct device *dev, uint8_t entity_id,
+				  uint8_t channel, int16_t volume, void *user_data);
+	/**
+	 * @brief Get Feature Unit Volume (ALSA kcontrol in 1/256 dB Q8.8 format)
+	 */
+	int (*get_feature_volume)(const struct device *dev, uint8_t entity_id,
+				  uint8_t channel, int16_t *volume, void *user_data);
 };
 
 /**
