@@ -274,7 +274,7 @@
 #define SPATIAL_LOCATIONS(entity) U32_LE(SPATIAL_LOCATIONS_U32(entity))
 
 #define FEATURE_UNIT_NUM_CHANNELS(entity)					\
-	NUM_SPATIAL_LOCATIONS(DT_PHANDLE_BY_IDX(entity, data_source, 0))
+	NUM_SPATIAL_LOCATIONS(FEATURE_UNIT_CHANNEL_CLUSTER(entity))
 
 #define FEATURE_UNIT_CONTROLS_BY_IDX(i, entity)					\
 	U32_LE(FEATURE_UNIT_CHANNEL_CONTROLS(entity, i))
@@ -379,10 +379,40 @@
 		(FORMAT_TYPE_I), (FORMAT_TYPE_IV))
 #define AUDIO_STREAMING_FORMATS(node) U32_LE(0x00000001)
 
+#define FEATURE_UNIT_CHANNEL_CLUSTER_HOP4(node)					\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_input_terminal), (					\
+			DT_PROP(node, data_source)				\
+	))
+
+#define FEATURE_UNIT_CHANNEL_CLUSTER_HOP3(node)					\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_input_terminal), (					\
+			DT_PROP(node, data_source)				\
+	))									\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_feature_unit), (					\
+			FEATURE_UNIT_CHANNEL_CLUSTER_HOP4(DT_PROP(node, data_source))\
+	))
+
+#define FEATURE_UNIT_CHANNEL_CLUSTER_HOP2(node)					\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_input_terminal), (					\
+			DT_PROP(node, data_source)				\
+	))									\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_feature_unit), (					\
+			FEATURE_UNIT_CHANNEL_CLUSTER_HOP3(DT_PROP(node, data_source))\
+	))
+
 #define FEATURE_UNIT_CHANNEL_CLUSTER(node)					\
 	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
 		zephyr_uac2_input_terminal), (					\
 			DT_PROP(node, data_source)				\
+	))									\
+	IF_ENABLED(DT_NODE_HAS_COMPAT(DT_PROP(node, data_source),		\
+		zephyr_uac2_feature_unit), (					\
+			FEATURE_UNIT_CHANNEL_CLUSTER_HOP2(DT_PROP(node, data_source))\
 	))
 
 /* Track back Output Terminal data source to entity that has channel cluster */
@@ -1031,8 +1061,10 @@ Apply only for working with non-compliant Windows UAC2 driver"
 			zephyr_uac2_feature_unit))
 
 #define VALIDATE_FEATURE_UNIT_DATA_SOURCE(entity)				\
-	DT_NODE_HAS_COMPAT(DT_PROP(entity, data_source),			\
-		zephyr_uac2_input_terminal)
+	UTIL_OR(DT_NODE_HAS_COMPAT(DT_PROP(entity, data_source),		\
+			zephyr_uac2_input_terminal),				\
+		DT_NODE_HAS_COMPAT(DT_PROP(entity, data_source),		\
+			zephyr_uac2_feature_unit))
 
 #define BUILD_ASSERT_FEATURE_UNIT_CONTROL(fu, control)				\
 	BUILD_ASSERT(UTIL_OR(UTIL_NOT(DT_NODE_HAS_PROP(fu, control)),		\
