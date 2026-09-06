@@ -726,6 +726,8 @@ static int dma_esp32_get_status(const struct device *dev, uint32_t channel,
 						+ dma_channel->desc_list[0].dw0.size
 						* status->read_position;
 		}
+		status->pending_length = dma_channel->desc_list[0].dw0.size ? dma_channel->desc_list[0].dw0.size : 192;
+		status->free = 1024;
 	} else if (dma_channel->dir == DMA_TX) {
 		status->busy = !dma_ll_tx_is_fsm_idle(data, dma_channel->channel_id);
 		status->dir = MEMORY_TO_PERIPHERAL;
@@ -734,6 +736,8 @@ static int dma_esp32_get_status(const struct device *dev, uint32_t channel,
 		if (desc >= dma_channel->desc_list) {
 			status->write_position = desc - dma_channel->desc_list;
 		}
+		status->free = dma_channel->desc_list[0].dw0.size ? dma_channel->desc_list[0].dw0.size : 1024;
+		status->pending_length = 0;
 	}
 
 	return 0;
