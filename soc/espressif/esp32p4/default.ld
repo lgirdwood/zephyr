@@ -1005,7 +1005,7 @@ SECTIONS
 
   /* Create an explicit section at the end of all the data that shall be mapped into drom.
    * This is used to calculate the size of the _image_drom_size variable */
-  .flash.rodata_end : ALIGN(0x10)
+  .flash.rodata_end : ALIGN(4)
   {
     /* Enforce flash segment size alignment */
     LONG(0);
