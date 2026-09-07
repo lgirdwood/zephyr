@@ -1985,6 +1985,16 @@ static int udc_dwc2_init_controller(const struct device *dev)
 			i, priv->max_txfifo_depth[i], dwc2_get_txfaddr(dev, i));
 	}
 
+	struct udc_ep_config *ep0_out = udc_get_ep_cfg(dev, USB_CONTROL_EP_OUT);
+	struct udc_ep_config *ep0_in = udc_get_ep_cfg(dev, USB_CONTROL_EP_IN);
+
+	if (ep0_out && ep0_out->stat.enabled) {
+		udc_ep_disable_internal(dev, USB_CONTROL_EP_OUT);
+	}
+	if (ep0_in && ep0_in->stat.enabled) {
+		udc_ep_disable_internal(dev, USB_CONTROL_EP_IN);
+	}
+
 	if (udc_ep_enable_internal(dev, USB_CONTROL_EP_OUT,
 				   USB_EP_TYPE_CONTROL, 64, 0)) {
 		LOG_ERR("Failed to enable control endpoint");
@@ -2213,6 +2223,8 @@ static int dwc2_driver_preinit(const struct device *dev)
 			continue;
 		}
 
+		memset(&config->ep_cfg_out[n], 0, sizeof(struct udc_ep_config));
+
 		if (i == 0) {
 			config->ep_cfg_out[n].caps.control = 1;
 			config->ep_cfg_out[n].caps.mps = 64;
@@ -2248,6 +2260,8 @@ static int dwc2_driver_preinit(const struct device *dev)
 		    epdir != USB_DWC2_GHWCFG1_EPDIR_BDIR) {
 			continue;
 		}
+
+		memset(&config->ep_cfg_in[n], 0, sizeof(struct udc_ep_config));
 
 		if (i == 0) {
 			config->ep_cfg_in[n].caps.control = 1;
