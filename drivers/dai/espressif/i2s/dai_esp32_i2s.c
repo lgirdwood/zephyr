@@ -130,9 +130,11 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	 * To trigger in_suc_eof at exactly 192 bytes (one descriptor): rx_eof_num = 96 - 1 = 95.
 	 */
 	uint32_t slot_bytes = slot_bits / 8;
-	uint32_t period_bytes = (data->sample_rate ? data->sample_rate : 48000) / 1000 *
-				(data->channels ? data->channels : 2) * slot_bytes;
-	I2S0.rx_eof_num.rx_eof_num = period_bytes > 0 ? (period_bytes - 1) : 191;
+	uint32_t period_bytes = cfg->block_size ? cfg->block_size :
+				(((data->sample_rate ? data->sample_rate : 48000) / 1000) *
+				 (data->channels ? data->channels : 2) * (slot_bytes ? slot_bytes : 2));
+	uint32_t total_words = period_bytes / (slot_bytes ? slot_bytes : 2);
+	I2S0.rx_eof_num.rx_eof_num = total_words > 0 ? (total_words - 1) : 0;
 
 	/* Philips standard: 1 bit MSB shift, WS low for left channel, left align */
 	I2S0.tx_conf.tx_msb_shift = 1;
@@ -285,7 +287,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 
 		I2S0.tx_conf.tx_slave_mod = 0;
 		I2S0.rx_conf.rx_slave_mod = 0;
-		I2S0.tx_conf.sig_loopback = 1;
+		I2S0.tx_conf.sig_loopback = 0;
 
 		esp_rom_gpio_connect_out_signal(21, I2S0_O_BCK_PAD_OUT_IDX, false, false);
 		esp_rom_gpio_connect_out_signal(22, I2S0_O_WS_PAD_OUT_IDX, false, false);
