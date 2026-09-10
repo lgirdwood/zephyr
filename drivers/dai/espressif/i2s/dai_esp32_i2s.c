@@ -105,8 +105,15 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	/* Configure TDM / Philips I2S format */
 	I2S0.tx_conf.tx_pdm_en = 0;
 	I2S0.tx_conf.tx_tdm_en = 1;
+	I2S0.tx_conf.tx_pcm_bypass = 1;
 	I2S0.rx_conf.rx_pdm_en = 0;
 	I2S0.rx_conf.rx_tdm_en = 1;
+	I2S0.rx_conf.rx_pcm_bypass = 1;
+	I2S0.tx_pcm2pdm_conf.val = 0;
+	I2S0.tx_pcm2pdm_conf1.val = 0;
+	I2S0.rx_pdm2pcm_conf.val = 0;
+	I2S0.rx_timing.val = 0;
+	I2S0.tx_timing.val = 0;
 
 	uint32_t slot_bits = (data->word_size > 16) ? 32 : 16;
 
