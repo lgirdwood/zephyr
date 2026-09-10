@@ -132,12 +132,15 @@ static void pdm_hw_configure(bool is_pdm1, bool is_slave, uint32_t sample_rate,
 	I2S0.rx_pdm2pcm_conf.rx_iir_hp_mult12_5 = 7;
 	I2S0.rx_pdm2pcm_conf.rx_iir_hp_mult12_0 = 6;
 
-	/* SD input delay mode:
-	 * In Slave RX mode, external clock and data are received concurrently.
-	 * Delaying the Serial Data (SD) input by one half-cycle of the fast peripheral
-	 * clock (pos edge) aligns the data setup and hold times for both rising and
-	 * falling clock edges, achieving >83dB SNR on both audio channels.
+	/* SD output / input delay modes:
+	 * In Master TX mode, delaying the Serial Data (SD) output by one cycle of the fast
+	 * peripheral clock (tx_sd_out_dm = 2) centers the data transitions away from the
+	 * 3.072 MHz PDM bit clock transitions.
+	 * In Slave RX mode, delaying the Serial Data (SD) input by one half-cycle of the fast
+	 * peripheral clock (rx_sd_in_dm = 1) aligns the sampling window across both rising
+	 * and falling clock edges, achieving >83dB SNR across both audio channels.
 	 */
+	I2S0.tx_timing.tx_sd_out_dm = is_slave ? 0 : 2;
 	I2S0.rx_timing.rx_sd_in_dm = is_slave ? 1 : 0;
 
 	I2S0.rx_tdm_ctrl.rx_tdm_pdm_chan0_en = 1;
