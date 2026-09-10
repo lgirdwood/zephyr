@@ -208,12 +208,22 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	I2S0.rx_conf.rx_bck_div_num = bclk_div - 1;
 	I2S0.tx_conf.tx_stop_en = 0;
 
+	/* Float PDM GPIOs (GPIO 3, 4, 5) to High-Z in I2S mode */
+	GPIO.func_out_sel_cfg[3].out_sel = 256;
+	GPIO.func_out_sel_cfg[3].oen_sel = 1;
+	GPIO.func_out_sel_cfg[4].out_sel = 256;
+	GPIO.func_out_sel_cfg[4].oen_sel = 1;
+	GPIO.func_out_sel_cfg[5].out_sel = 256;
+	GPIO.func_out_sel_cfg[5].oen_sel = 1;
+	GPIO.enable_w1tc.val = (1 << 3) | (1 << 4) | (1 << 5);
+
 	if (data->is_slave) {
 		/* Attach MCLK to RX module on P4 */
 		_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
 
 		I2S0.tx_conf.tx_slave_mod = 1;
 		I2S0.rx_conf.rx_slave_mod = 1;
+		I2S0.tx_conf.tx_start = 0;
 		I2S0.tx_conf.sig_loopback = 0;
 
 		/* Slave GPIO Matrix:
@@ -222,7 +232,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		 * DIN In:  GPIO 23 (Pin 7)  -> I2S0_I_SD_PAD_IN_IDX (28) (Connected to Pallas GPIO 20)
 		 * DOUT Out:GPIO 20 (Pin 13) <- I2S0_O_SD_PAD_OUT_IDX (28)
 		 */
-		GPIO.func_out_sel_cfg[20].out_sel = 28; // I2S0_O_SD_OUT (if transmitting)
+		GPIO.func_out_sel_cfg[20].out_sel = 256;
 		GPIO.func_out_sel_cfg[20].oen_sel = 1;
 		GPIO.func_out_sel_cfg[20].oen_inv_sel = 0;
 
@@ -279,17 +289,30 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		IO_MUX.gpio[23].fun_wpu = 0;
 		IO_MUX.gpio[23].fun_wpd = 0;
 
-		esp_rom_gpio_connect_out_signal(20, I2S0_O_SD_PAD_OUT_IDX, false, false);
+		/* Identify board to select I2S DIN pin:
+		 * On Ceres (MAC 0x6c) and Pallas (0x17), the cross-connection wire is on GPIO 23.
+		 * On Spider (0xc7) and Aphid (0x15) DUT bridges, DUT DOUT connects to GPIO 20.
+		 */
+		uint8_t mac[6] = {0};
+		extern int esp_efuse_mac_get_default(uint8_t *mac);
+		esp_efuse_mac_get_default(mac);
+		int din_pin = (mac[5] == 0xc7 || mac[5] == 0x15) ? 20 : 23;
+
 		esp_rom_gpio_connect_in_signal(21, I2S0_I_BCK_PAD_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(21, I2S0_O_BCK_PAD_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(22, I2S0_I_WS_PAD_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(22, I2S0_O_WS_PAD_IN_IDX, false);
-		esp_rom_gpio_connect_in_signal(23, I2S0_I_SD_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
 
-		LOG_INF("DAI I2S set to SLAVE mode (external BCLK/WS on G21/G22, DIN on G23)");
+		LOG_INF("DAI I2S set to SLAVE mode (external BCLK/WS on G21/G22, DIN on G%d)", din_pin);
 	} else {
 		/* Master Mode: Drive BCLK (GPIO 21), WS (GPIO 22), DOUT (both GPIO 20 and GPIO 23), DIN (GPIO 23/20) */
 		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+
+		uint8_t mac[6] = {0};
+		extern int esp_efuse_mac_get_default(uint8_t *mac);
+		esp_efuse_mac_get_default(mac);
+		int din_pin = (mac[5] == 0xc7 || mac[5] == 0x15) ? 20 : 23;
 
 		I2S0.tx_conf.tx_slave_mod = 0;
 		I2S0.rx_conf.rx_slave_mod = 0;
@@ -299,7 +322,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		esp_rom_gpio_connect_out_signal(22, I2S0_O_WS_PAD_OUT_IDX, false, false);
 		esp_rom_gpio_connect_out_signal(20, I2S0_O_SD_PAD_OUT_IDX, false, false);
 		esp_rom_gpio_connect_out_signal(23, I2S0_O_SD_PAD_OUT_IDX, false, false);
-		esp_rom_gpio_connect_in_signal(23, I2S0_I_SD_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
 
 		GPIO.func_out_sel_cfg[21].out_sel = 25; // I2S0_O_BCK_OUT
 		GPIO.func_out_sel_cfg[21].oen_sel = 1;

@@ -26,6 +26,8 @@ LOG_MODULE_REGISTER(dai_esp32_pdm, CONFIG_DAI_LOG_LEVEL);
 
 #define DT_DRV_COMPAT espressif_esp32_dai_pdm
 
+#define DAI_ESP32_PDM_OPT_DMIC_INJECTOR BIT(0)
+
 struct dai_esp32_pdm_config {
 	uint32_t reg_base;
 	uint32_t irq;
@@ -41,6 +43,8 @@ struct dai_esp32_pdm_data {
 	enum dai_state tx_state;
 	enum dai_state rx_state;
 	bool is_slave;
+	bool is_dmic;
+	bool is_pallas;
 	uint32_t sample_rate;
 	uint8_t channels;
 	uint8_t word_size;
@@ -121,7 +125,7 @@ static void pdm_hw_configure(bool is_pdm1, bool is_slave, uint32_t sample_rate,
 
 	I2S0.rx_conf.rx_pdm_en = 1;
 	I2S0.rx_conf.rx_tdm_en = 0;
-	I2S0.rx_conf.rx_slave_mod = is_slave ? 1 : 0;
+	I2S0.rx_conf.rx_slave_mod = 1;
 	I2S0.rx_conf.rx_pcm_bypass = 1;
 	I2S0.rx_conf1.val = 0x787bc000;
 	I2S0.rx_conf1.rx_tdm_ws_width = 0;
@@ -135,13 +139,13 @@ static void pdm_hw_configure(bool is_pdm1, bool is_slave, uint32_t sample_rate,
 	/* SD output / input delay modes:
 	 * In Master TX mode, delaying the Serial Data (SD) output by one cycle of the fast
 	 * peripheral clock (tx_sd_out_dm = 2) centers the data transitions away from the
-	 * 3.072 MHz PDM bit clock transitions.
-	 * In Slave RX mode, delaying the Serial Data (SD) input by one half-cycle of the fast
+	 * 3.072 MHz PDM bit clock transitions. In Slave TX (DMIC injector), external clock is received so tx_sd_out_dm = 0.
+	 * In PDM RX mode, delaying the Serial Data (SD) input by one half-cycle of the fast
 	 * peripheral clock (rx_sd_in_dm = 1) aligns the sampling window across both rising
 	 * and falling clock edges, achieving >83dB SNR across both audio channels.
 	 */
 	I2S0.tx_timing.tx_sd_out_dm = is_slave ? 0 : 2;
-	I2S0.rx_timing.rx_sd_in_dm = is_slave ? 1 : 0;
+	I2S0.rx_timing.rx_sd_in_dm = 1;
 
 	I2S0.rx_tdm_ctrl.rx_tdm_pdm_chan0_en = 1;
 	I2S0.rx_tdm_ctrl.rx_tdm_pdm_chan1_en = (num_channels > 1) ? 1 : 0;
@@ -182,6 +186,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 	} else {
 		data->is_slave = false;
 	}
+	data->is_dmic = (cfg->options & DAI_ESP32_PDM_OPT_DMIC_INJECTOR) != 0;
 
 	pdm_hw_configure(is_pdm1, data->is_slave, data->sample_rate,
 			 data->channels, data->word_size, cfg->block_size);
@@ -233,18 +238,87 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 	/* Ensure loopback is disabled */
 	I2S0.tx_conf.sig_loopback = 0;
 
-	if (data->is_slave) {
-		_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
-	} else {
-		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
-	}
+	/* Float I2S GPIOs (GPIO 20, 21, 22, 23) to High-Z in PDM mode */
+	GPIO.func_out_sel_cfg[20].out_sel = 256;
+	GPIO.func_out_sel_cfg[20].oen_sel = 1;
+	GPIO.func_out_sel_cfg[21].out_sel = 256;
+	GPIO.func_out_sel_cfg[21].oen_sel = 1;
+	GPIO.func_out_sel_cfg[22].out_sel = 256;
+	GPIO.func_out_sel_cfg[22].oen_sel = 1;
+	GPIO.func_out_sel_cfg[23].out_sel = 256;
+	GPIO.func_out_sel_cfg[23].oen_sel = 1;
+	GPIO.enable_w1tc.val = (1 << 20) | (1 << 21) | (1 << 22) | (1 << 23);
 
-	/* PDM0 GPIO routing:
-	 * Pallas (Master): drives PDM CLK on GPIO 4 (Pin 18) and PDM DOUT on BOTH GPIO 3 & 5 (Pin 16 & 19)
-	 * Ceres (Slave): receives PDM CLK on GPIO 4 (Pin 18) and PDM DIN on GPIO 5 (or GPIO 3)
+	/* Unhold and select GPIO function for GPIO 3, 4, 5 */
+	esp_rom_gpio_pad_unhold(3);
+	esp_rom_gpio_pad_unhold(4);
+	esp_rom_gpio_pad_unhold(5);
+	esp_rom_gpio_pad_select_gpio(3);
+	esp_rom_gpio_pad_select_gpio(4);
+	esp_rom_gpio_pad_select_gpio(5);
+
+	/* Identify board to select PDM DIN pin:
+	 * On Pallas (MAC ending in 0x17), the cross-connection wire is on GPIO 3.
+	 * On Ceres and DUTs (Spider/Aphid), the cross-connection wire is on GPIO 5.
 	 */
-	if (data->is_slave) {
-		/* Slave Mode: Clock In on GPIO 4, Data In on GPIO 5 (or GPIO 3) */
+	uint8_t mac[6] = {0};
+	extern int esp_efuse_mac_get_default(uint8_t *mac);
+	esp_efuse_mac_get_default(mac);
+	data->is_pallas = (mac[5] == 0x17);
+	int din_pin = data->is_pallas ? 3 : 5;
+
+	if (data->is_slave && data->is_dmic) {
+		/* DMIC Injector Mode:
+		 * Clock In on GPIO 4 (Pin 18) from external master (e.g. Ceres or Intel SoC).
+		 * Connect GPIO 4 to TX and RX clock inputs.
+		 * Transmit modulated PDM bitstream (DOUT) on BOTH GPIO 3 & 5.
+		 */
+		GPIO.func_out_sel_cfg[4].out_sel = 256;
+		GPIO.func_out_sel_cfg[4].oen_sel = 1;
+		GPIO.enable_w1tc.val = (1 << 4);
+
+		IO_MUX.gpio[4].val = 0;
+		IO_MUX.gpio[4].mcu_sel = 1;
+		IO_MUX.gpio[4].fun_ie = 1;
+		IO_MUX.gpio[4].fun_wpu = 0;
+		IO_MUX.gpio[4].fun_wpd = 0;
+
+		esp_rom_gpio_connect_in_signal(4, I2S0_O_WS_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(4, I2S0_O_BCK_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(4, I2S0_I_WS_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(4, I2S0_I_BCK_PAD_IN_IDX, false);
+
+		/* Transmit DOUT on BOTH GPIO 3 and GPIO 5 */
+		esp_rom_gpio_connect_out_signal(3, I2S0_O_SD_PAD_OUT_IDX, false, false);
+		esp_rom_gpio_connect_out_signal(5, I2S0_O_SD_PAD_OUT_IDX, false, false);
+		GPIO.func_out_sel_cfg[3].out_sel = 28; /* I2S0_O_SD_OUT */
+		GPIO.func_out_sel_cfg[3].oen_sel = 1;
+		GPIO.func_out_sel_cfg[3].oen_inv_sel = 0;
+		GPIO.func_out_sel_cfg[5].out_sel = 28; /* I2S0_O_SD_OUT */
+		GPIO.func_out_sel_cfg[5].oen_sel = 1;
+		GPIO.func_out_sel_cfg[5].oen_inv_sel = 0;
+		/* DOUT pads: set drive strength, enable outputs */
+		esp_rom_gpio_pad_set_drv(3, 3);
+		esp_rom_gpio_pad_set_drv(5, 3);
+		GPIO.enable_w1ts.val = (1 << 3) | (1 << 5);
+
+		IO_MUX.gpio[3].val = 0;
+		IO_MUX.gpio[3].mcu_sel = 1;
+		IO_MUX.gpio[3].fun_ie = 1;
+		IO_MUX.gpio[5].val = 0;
+		IO_MUX.gpio[5].mcu_sel = 1;
+		IO_MUX.gpio[5].fun_ie = 1;
+
+		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+		I2S0.tx_conf.tx_slave_mod = 1;
+		I2S0.tx_conf.tx_start = 0;
+
+		LOG_INF("DAI PDM0 configured in DMIC INJECTOR mode (CLK in on G4, DOUT on G3&G5)");
+	} else if (data->is_slave) {
+		/* Slave RX Mode (Standard Loopback Receiver / Mic Capture):
+		 * Clock In on GPIO 4, Data In on din_pin.
+		 * ALL outputs disabled (High-Z) - NEVER drive DOUT or CLK.
+		 */
 		GPIO.func_out_sel_cfg[3].out_sel = 256;
 		GPIO.func_out_sel_cfg[3].oen_sel = 1;
 		GPIO.func_out_sel_cfg[4].out_sel = 256;
@@ -252,13 +326,6 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		GPIO.func_out_sel_cfg[5].out_sel = 256;
 		GPIO.func_out_sel_cfg[5].oen_sel = 1;
 		GPIO.enable_w1tc.val = (1 << 3) | (1 << 4) | (1 << 5);
-
-		esp_rom_gpio_pad_unhold(3);
-		esp_rom_gpio_pad_unhold(4);
-		esp_rom_gpio_pad_unhold(5);
-		esp_rom_gpio_pad_select_gpio(3);
-		esp_rom_gpio_pad_select_gpio(4);
-		esp_rom_gpio_pad_select_gpio(5);
 
 		IO_MUX.gpio[3].val = 0;
 		IO_MUX.gpio[3].mcu_sel = 1;
@@ -282,57 +349,82 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		esp_rom_gpio_connect_in_signal(4, I2S0_I_WS_PAD_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(4, I2S0_I_BCK_PAD_IN_IDX, false);
 
-		/* Connect I2S0_I_SD_PAD_IN_IDX (Signal 28) to GPIO 5 (connected to Pallas GPIO 3 via orange wire) */
-		int din_pin = 5;
+		/* Connect I2S0_I_SD_PAD_IN_IDX (Signal 28) to din_pin */
 		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
 
-		LOG_INF("DAI PDM0 configured in SLAVE mode (CLK on G4, DIN on G%d)", din_pin);
-	} else {
-		/* Master Mode: Drive PDM CLK (GPIO 4) and PDM DOUT on BOTH GPIO 3 & 5 */
-		esp_rom_gpio_connect_out_signal(4, I2S0_O_WS_PAD_OUT_IDX, false, false);
-		esp_rom_gpio_connect_out_signal(3, I2S0_O_SD_PAD_OUT_IDX, false, false);
-		esp_rom_gpio_connect_out_signal(5, I2S0_O_SD_PAD_OUT_IDX, false, false);
+		_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
+		I2S0.rx_conf.rx_slave_mod = 1;
+		I2S0.tx_conf.tx_slave_mod = 1;
+		I2S0.tx_conf.tx_start = 0;
 
+		LOG_INF("DAI PDM0 configured in SLAVE RX mode (CLK on G4, DIN on G%d, outputs high-Z)", din_pin);
+	} else {
+		/* Master Mode: Drive PDM CLK on GPIO 4.
+		 * If Pallas (MAC 0x17): Drive DOUT on BOTH GPIO 3 & 5.
+		 * If Ceres/DUT (MAC != 0x17): Only drive CLK on GPIO 4; keep GPIO 3 & 5 High-Z inputs.
+		 */
+		bool is_pallas = data->is_pallas;
+
+		esp_rom_gpio_connect_out_signal(4, I2S0_O_WS_PAD_OUT_IDX, false, false);
 		GPIO.func_out_sel_cfg[4].out_sel = 27; /* I2S0_O_WS_OUT */
 		GPIO.func_out_sel_cfg[4].oen_sel = 1;
 		GPIO.func_out_sel_cfg[4].oen_inv_sel = 0;
-
-		GPIO.func_out_sel_cfg[3].out_sel = 28; /* I2S0_O_SD_OUT */
-		GPIO.func_out_sel_cfg[3].oen_sel = 1;
-		GPIO.func_out_sel_cfg[3].oen_inv_sel = 0;
-
-		GPIO.func_out_sel_cfg[5].out_sel = 28; /* I2S0_O_SD_OUT */
-		GPIO.func_out_sel_cfg[5].oen_sel = 1;
-		GPIO.func_out_sel_cfg[5].oen_inv_sel = 0;
-
-		GPIO.enable_w1ts.val = (1 << 3) | (1 << 4) | (1 << 5);
-
-		esp_rom_gpio_pad_unhold(3);
-		esp_rom_gpio_pad_unhold(4);
-		esp_rom_gpio_pad_unhold(5);
-		esp_rom_gpio_pad_select_gpio(3);
-		esp_rom_gpio_pad_select_gpio(4);
-		esp_rom_gpio_pad_select_gpio(5);
-
-		IO_MUX.gpio[3].val = 0;
-		IO_MUX.gpio[3].mcu_sel = 1;
-		IO_MUX.gpio[3].fun_ie = 0;
-		esp_rom_gpio_pad_set_drv(3, 3);
+		GPIO.enable_w1ts.val = (1 << 4);
 
 		IO_MUX.gpio[4].val = 0;
 		IO_MUX.gpio[4].mcu_sel = 1;
-		IO_MUX.gpio[4].fun_ie = 0;
+		IO_MUX.gpio[4].fun_ie = 1;
 		esp_rom_gpio_pad_set_drv(4, 3);
 
-		IO_MUX.gpio[5].val = 0;
-		IO_MUX.gpio[5].mcu_sel = 1;
-		IO_MUX.gpio[5].fun_ie = 0;
-		esp_rom_gpio_pad_set_drv(5, 3);
+		if (is_pallas) {
+			esp_rom_gpio_connect_out_signal(3, I2S0_O_SD_PAD_OUT_IDX, false, false);
+			esp_rom_gpio_connect_out_signal(5, I2S0_O_SD_PAD_OUT_IDX, false, false);
+			GPIO.func_out_sel_cfg[3].out_sel = 28; /* I2S0_O_SD_OUT */
+			GPIO.func_out_sel_cfg[3].oen_sel = 1;
+			GPIO.func_out_sel_cfg[3].oen_inv_sel = 0;
+			GPIO.func_out_sel_cfg[5].out_sel = 28; /* I2S0_O_SD_OUT */
+			GPIO.func_out_sel_cfg[5].oen_sel = 1;
+			GPIO.func_out_sel_cfg[5].oen_inv_sel = 0;
+			GPIO.enable_w1ts.val = (1 << 3) | (1 << 5);
+
+			IO_MUX.gpio[3].val = 0;
+			IO_MUX.gpio[3].mcu_sel = 1;
+			IO_MUX.gpio[3].fun_ie = 1;
+			esp_rom_gpio_pad_set_drv(3, 3);
+
+			IO_MUX.gpio[5].val = 0;
+			IO_MUX.gpio[5].mcu_sel = 1;
+			IO_MUX.gpio[5].fun_ie = 1;
+			esp_rom_gpio_pad_set_drv(5, 3);
+		} else {
+			GPIO.func_out_sel_cfg[3].out_sel = 256;
+			GPIO.func_out_sel_cfg[3].oen_sel = 1;
+			GPIO.func_out_sel_cfg[5].out_sel = 256;
+			GPIO.func_out_sel_cfg[5].oen_sel = 1;
+			GPIO.enable_w1tc.val = (1 << 3) | (1 << 5);
+
+			IO_MUX.gpio[3].val = 0;
+			IO_MUX.gpio[3].mcu_sel = 1;
+			IO_MUX.gpio[3].fun_ie = 1;
+
+			IO_MUX.gpio[5].val = 0;
+			IO_MUX.gpio[5].mcu_sel = 1;
+			IO_MUX.gpio[5].fun_ie = 1;
+		}
+
+		esp_rom_gpio_connect_in_signal(4, I2S0_I_WS_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(4, I2S0_I_BCK_PAD_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
+
+		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+		I2S0.tx_conf.tx_slave_mod = 0;
+		I2S0.rx_conf.rx_slave_mod = 0;
 
 		/* Start master clock */
 		I2S0.tx_conf.tx_start = 1;
 
-		LOG_INF("DAI PDM0 configured in MASTER mode (internal PDM CLK on G4, DOUT on G3 & G5, rate=3.072MHz)");
+		LOG_INF("DAI PDM0 configured in MASTER mode (CLK out on G4, %s, DIN on G%d, rate=3.072MHz)",
+			is_pallas ? "DOUT on G3&G5" : "DOUT disabled (High-Z)", din_pin);
 	}
 
 	I2S0.tx_conf.tx_update = 1;
@@ -386,6 +478,10 @@ static int dai_esp32_pdm_trigger(const struct device *dev,
 		break;
 	case DAI_TRIGGER_START:
 		if (dir == DAI_DIR_TX || dir == DAI_DIR_BOTH) {
+			_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+			if (data->is_pallas || data->is_dmic) {
+				GPIO.enable_w1ts.val = (1 << 3) | (1 << 5);
+			}
 			I2S0.tx_conf.tx_fifo_reset = 1;
 			I2S0.tx_conf.tx_fifo_reset = 0;
 			I2S0.tx_conf.tx_update = 1;
@@ -399,6 +495,11 @@ static int dai_esp32_pdm_trigger(const struct device *dev,
 			data->tx_state = DAI_STATE_RUNNING;
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
+			if (data->is_slave && !data->is_dmic) {
+				_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
+			} else {
+				_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+			}
 			I2S0.rx_conf.rx_fifo_reset = 1;
 			I2S0.rx_conf.rx_fifo_reset = 0;
 			I2S0.rx_conf.rx_update = 1;
