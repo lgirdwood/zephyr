@@ -133,8 +133,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	uint32_t period_bytes = cfg->block_size ? cfg->block_size :
 				(((data->sample_rate ? data->sample_rate : 48000) / 1000) *
 				 (data->channels ? data->channels : 2) * (slot_bytes ? slot_bytes : 2));
-	uint32_t total_words = period_bytes / (slot_bytes ? slot_bytes : 2);
-	I2S0.rx_eof_num.rx_eof_num = total_words > 0 ? (total_words - 1) : 0;
+	I2S0.rx_eof_num.rx_eof_num = period_bytes > 0 ? (period_bytes - 1) : 0;
 
 	/* Philips standard: 1 bit MSB shift, WS low for left channel, left align */
 	I2S0.tx_conf.tx_msb_shift = 1;
