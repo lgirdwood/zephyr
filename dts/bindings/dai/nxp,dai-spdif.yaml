@@ -1,0 +1,26 @@
+# Copyright 2024 NXP
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  NXP Sony/Philips Digital Interface (S/PDIF) audio transceiver.
+
+compatible: "nxp,dai-spdif"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+  interrupts:
+    required: true
+  clocks:
+    required: true
+  clock-names:
+    required: true
+  dmas:
+    required: true
+  dma-names:
+    required: true
+  dai-index:
+    type: int
+    description: Index of the DAI instance.

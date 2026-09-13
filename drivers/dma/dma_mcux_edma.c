@@ -403,6 +403,29 @@ static int dma_mcux_edma_configure_sg_loop(const struct device *dev,
 		EDMA_TcdSetTransferConfig(&DEV_CFG(dev)->tcdpool[channel][i],
 			&data->transferConfig,
 			&DEV_CFG(dev)->tcdpool[channel][(i + 1) % num_blocks]);
+		if (config->dma_slot == 86) {
+			/* S/PDIF Tx: write interleaved L to STL (0x2C), R to STR (0x30).
+			 * DOFF = 4. DMLOE applies -8 at minor loop end to reset DADDR to STL.
+			 */
+			DEV_CFG(dev)->tcdpool[channel][i].DOFF = 4;
+			edma_minor_offset_config_t minor_offset = {
+				.enableSrcMinorOffset = false,
+				.enableDestMinorOffset = true,
+				.minorOffset = (uint32_t)(-8),
+			};
+			EDMA_TcdSetMinorOffsetConfig(&DEV_CFG(dev)->tcdpool[channel][i], &minor_offset);
+		} else if (config->dma_slot == 85) {
+			/* S/PDIF Rx: read interleaved L from SRL (0x14), R from SRR (0x18).
+			 * SOFF = 4. SMLOE applies -8 at minor loop end to reset SADDR to SRL.
+			 */
+			DEV_CFG(dev)->tcdpool[channel][i].SOFF = 4;
+			edma_minor_offset_config_t minor_offset = {
+				.enableSrcMinorOffset = true,
+				.enableDestMinorOffset = false,
+				.minorOffset = (uint32_t)(-8),
+			};
+			EDMA_TcdSetMinorOffsetConfig(&DEV_CFG(dev)->tcdpool[channel][i], &minor_offset);
+		}
 		if (config->dma_callback != NULL) {
 			EDMA_TcdEnableInterrupts(&DEV_CFG(dev)->tcdpool[channel][i],
 				kEDMA_MajorInterruptEnable);

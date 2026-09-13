@@ -170,6 +170,12 @@ static int mcux_ccm_on(const struct device *dev,
 #endif
 #endif /* CONFIG_DAI_NXP_SAI */
 
+#if defined(CONFIG_DAI_NXP_SPDIF) && defined(CONFIG_SOC_SERIES_IMXRT10XX)
+	case IMX_CCM_SPDIF0_CLK:
+		CLOCK_EnableClock(kCLOCK_Spdif);
+		return 0;
+#endif
+
 #ifdef CONFIG_DAI_NXP_ESAI
 #if defined(CONFIG_SOC_MIMX8QM6_ADSP) || defined(CONFIG_SOC_MIMX8QX6_ADSP)
 	case IMX_CCM_ESAI0_CLK:
@@ -242,6 +248,12 @@ static int mcux_ccm_off(const struct device *dev,
 		return 0;
 #endif
 #endif /* CONFIG_DAI_NXP_SAI */
+
+#if defined(CONFIG_DAI_NXP_SPDIF) && defined(CONFIG_SOC_SERIES_IMXRT10XX)
+	case IMX_CCM_SPDIF0_CLK:
+		CLOCK_DisableClock(kCLOCK_Spdif);
+		return 0;
+#endif
 
 #ifdef CONFIG_DAI_NXP_ESAI
 #if defined(CONFIG_SOC_MIMX8QM6_ADSP) || defined(CONFIG_SOC_MIMX8QX6_ADSP)
@@ -496,6 +508,13 @@ static int mcux_ccm_get_subsys_rate(const struct device *dev,
 				/ (CLOCK_GetDiv(kCLOCK_Sai3Div) + 1);
 		break;
 #endif
+#endif
+#if defined(CONFIG_DAI_NXP_SPDIF)
+	case IMX_CCM_SPDIF0_CLK:
+		*rate = CLOCK_GetFreq(kCLOCK_AudioPllClk)
+				/ (CLOCK_GetDiv(kCLOCK_Spdif0PreDiv) + 1)
+				/ (CLOCK_GetDiv(kCLOCK_Spdif0Div) + 1);
+		break;
 #endif
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(flexspi))
 	case IMX_CCM_FLEXSPI_CLK:

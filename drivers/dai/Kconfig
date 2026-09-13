@@ -54,6 +54,7 @@ source "drivers/dai/intel/uaol/Kconfig.uaol"
 source "drivers/dai/nxp/esai/Kconfig.esai"
 source "drivers/dai/nxp/micfil/Kconfig.micfil"
 source "drivers/dai/nxp/sai/Kconfig.sai"
+source "drivers/dai/nxp/spdif/Kconfig.spdif"
 # zephyr-keep-sorted-stop
 
 endif # DAI
