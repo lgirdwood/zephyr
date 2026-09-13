@@ -157,6 +157,16 @@ static int mcux_ccm_on(const struct device *dev,
 	case IMX_CCM_SAI3_CLK:
 		CLOCK_EnableClock(sai_clocks[instance]);
 		return 0;
+#elif defined(CONFIG_SOC_SERIES_IMXRT10XX)
+	case IMX_CCM_SAI1_CLK:
+		CLOCK_EnableClock(kCLOCK_Sai1);
+		return 0;
+	case IMX_CCM_SAI2_CLK:
+		CLOCK_EnableClock(kCLOCK_Sai2);
+		return 0;
+	case IMX_CCM_SAI3_CLK:
+		CLOCK_EnableClock(kCLOCK_Sai3);
+		return 0;
 #endif
 #endif /* CONFIG_DAI_NXP_SAI */
 
@@ -219,6 +229,16 @@ static int mcux_ccm_off(const struct device *dev,
 	case IMX_CCM_SAI2_CLK:
 	case IMX_CCM_SAI3_CLK:
 		CLOCK_DisableClock(sai_clocks[instance]);
+		return 0;
+#elif defined(CONFIG_SOC_SERIES_IMXRT10XX)
+	case IMX_CCM_SAI1_CLK:
+		CLOCK_DisableClock(kCLOCK_Sai1);
+		return 0;
+	case IMX_CCM_SAI2_CLK:
+		CLOCK_DisableClock(kCLOCK_Sai2);
+		return 0;
+	case IMX_CCM_SAI3_CLK:
+		CLOCK_DisableClock(kCLOCK_Sai3);
 		return 0;
 #endif
 #endif /* CONFIG_DAI_NXP_SAI */
@@ -454,7 +474,7 @@ static int mcux_ccm_get_subsys_rate(const struct device *dev,
 		break;
 #endif
 
-#ifdef CONFIG_I2S_MCUX_SAI
+#if defined(CONFIG_I2S_MCUX_SAI) || defined(CONFIG_DAI_NXP_SAI)
 #if DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(sai1))
 	case IMX_CCM_SAI1_CLK:
 		*rate = CLOCK_GetFreq(kCLOCK_AudioPllClk)

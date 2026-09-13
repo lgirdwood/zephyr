@@ -144,8 +144,11 @@ LOG_MODULE_REGISTER(nxp_dai_sai);
  * The channel ID and MUX value are each encoded in 8 bits.
  */
 #define SAI_TX_RX_DMA_HANDSHAKE(inst, dir)\
-	((DT_INST_DMAS_CELL_BY_NAME(inst, dir, channel) & GENMASK(7, 0)) |\
-	 ((DT_INST_DMAS_CELL_BY_NAME(inst, dir, mux) << 8) & GENMASK(15, 8)))
+	COND_CODE_1(DT_INST_PHA_HAS_CELL(inst, dmas, source),\
+		(((DT_INST_DMAS_CELL_BY_NAME(inst, dir, mux) & GENMASK(7, 0))) |\
+		 (((DT_INST_DMAS_CELL_BY_NAME(inst, dir, source) << 8) & GENMASK(15, 8)))),\
+		(((DT_INST_DMAS_CELL_BY_NAME(inst, dir, channel) & GENMASK(7, 0)) |\
+		 ((DT_INST_DMAS_CELL_BY_NAME(inst, dir, mux) << 8) & GENMASK(15, 8)))))
 
 /* used to retrieve the number of supported transmission/receive lines */
 #define SAI_DLINE_COUNT(base)\
