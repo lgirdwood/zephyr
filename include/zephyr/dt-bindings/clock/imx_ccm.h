@@ -107,4 +107,7 @@
 /** PWM4 peripheral clock identifier */
 #define IMX_CCM_PWM4_CLK		0x1903UL
 
+/** SPDIF0 peripheral clock identifier */
+#define IMX_CCM_SPDIF0_CLK		0x1A00UL
+
 #endif /* ZEPHYR_INCLUDE_DT_BINDINGS_CLOCK_IMX_CCM_H_ */

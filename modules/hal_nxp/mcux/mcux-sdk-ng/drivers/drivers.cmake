@@ -120,6 +120,7 @@ set_variable_ifdef(CONFIG_GPIO_MCUX_RGPIO       CONFIG_MCUX_COMPONENT_driver.rgp
 set_variable_ifdef(CONFIG_GPIO_MCUX_GPIO        CONFIG_MCUX_COMPONENT_driver.gpio)
 set_variable_ifdef(CONFIG_I2S_MCUX_SAI          CONFIG_MCUX_COMPONENT_driver.sai)
 set_variable_ifdef(CONFIG_DAI_NXP_SAI           CONFIG_MCUX_COMPONENT_driver.sai)
+set_variable_ifdef(CONFIG_DAI_NXP_SPDIF         CONFIG_MCUX_COMPONENT_driver.spdif)
 set_variable_ifdef(CONFIG_MEMC_MCUX_FLEXSPI     CONFIG_MCUX_COMPONENT_driver.flexspi)
 set_variable_ifdef(CONFIG_MEMC_NXP_SEMC         CONFIG_MCUX_COMPONENT_driver.semc)
 set_variable_ifdef(CONFIG_MSPI_NXP_QSPI         CONFIG_MCUX_COMPONENT_driver.qspi)

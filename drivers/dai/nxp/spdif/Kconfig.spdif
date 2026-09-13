@@ -1,0 +1,10 @@
+# Copyright 2024 NXP
+# SPDX-License-Identifier: Apache-2.0
+
+config DAI_NXP_SPDIF
+	bool "NXP Sony/Philips Digital Interface (S/PDIF) driver"
+	default y
+	depends on DT_HAS_NXP_DAI_SPDIF_ENABLED
+	select PINCTRL
+	help
+	  Select this to enable NXP S/PDIF driver.

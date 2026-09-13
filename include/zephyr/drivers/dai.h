@@ -72,6 +72,7 @@ enum dai_protocol {
 	DAI_PROTO_DSP_A,   /**< TDM, FSYNC asserted 1 BCLK early */
 	DAI_PROTO_DSP_B,   /**< TDM, FSYNC asserted at the same time as MSB */
 	DAI_PROTO_PDM,     /**< Pulse Density Modulation */
+	DAI_PROTO_SPDIF,   /**< S/PDIF */
 };
 
 /** @brief DAI clock inversion
@@ -122,6 +123,7 @@ enum dai_type {
 	DAI_AMD_TDM,         /**< AMD TDM */
 	DAI_ESP32_I2S,       /**< ESP32 I2S */
 	DAI_ESP32_PDM,       /**< ESP32 PDM */
+	DAI_IMX_SPDIF,       /**< i.MX S/PDIF */
 };
 
 /**
