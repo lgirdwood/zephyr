@@ -11,16 +11,30 @@
 #include <zephyr/logging/log.h>
 
 #include <soc/i2s_struct.h>
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 #include <soc/hp_sys_clkrst_struct.h>
 #include <soc/lp_clkrst_struct.h>
-#include <soc/gpio_struct.h>
+#include <soc/rtc.h>
+#include <soc/lpperi_struct.h>
 #include <soc/io_mux_struct.h>
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+#include <soc/pcr_struct.h>
+#include <soc/io_mux_reg.h>
+#include <soc/gpio_periph.h>
+#endif
+#include <soc/gpio_struct.h>
 #include <soc/gpio_sig_map.h>
 #include <hal/i2s_ll.h>
 #include <esp_rom_gpio.h>
 #include <zephyr/drivers/dma/dma_esp32.h>
-#include <soc/rtc.h>
-#include <soc/lpperi_struct.h>
+
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+#define esp32_i2s_mclk_bind_to_tx(hw) _i2s_ll_mclk_bind_to_tx_clk(hw)
+#define esp32_i2s_mclk_bind_to_rx(hw) _i2s_ll_mclk_bind_to_rx_clk(hw)
+#else
+#define esp32_i2s_mclk_bind_to_tx(hw) i2s_ll_mclk_bind_to_tx_clk(hw)
+#define esp32_i2s_mclk_bind_to_rx(hw) i2s_ll_mclk_bind_to_rx_clk(hw)
+#endif
 
 LOG_MODULE_REGISTER(dai_esp32_pdm, CONFIG_DAI_LOG_LEVEL);
 
@@ -191,6 +205,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 	pdm_hw_configure(is_pdm1, data->is_slave, data->sample_rate,
 			 data->channels, data->word_size, cfg->block_size);
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 	/* Enable APB and peripheral clocks in HP_SYS_CLKRST and LP_AON_CLKRST */
 	HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = 1;
 	LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s0_mclk_en = 1;
@@ -214,7 +229,14 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 	HP_SYS_CLKRST.peri_clk_ctrl11.reg_i2s0_rx_clk_en = 1;
 	HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_src_sel = 1; /* APLL */
 	HP_SYS_CLKRST.peri_clk_ctrl13.reg_i2s0_tx_clk_en = 1;
-	I2S0.clk_gate.clk_en = 1;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+	PCR.i2s_conf.i2s_clk_en = 1;
+	PCR.i2s_conf.i2s_rst_en = 0;
+	PCR.i2s_tx_clkm_conf.i2s_tx_clkm_sel = 0; /* XTAL 40M */
+	PCR.i2s_tx_clkm_conf.i2s_tx_clkm_en = 1;
+	PCR.i2s_rx_clkm_conf.i2s_rx_clkm_sel = 0; /* XTAL 40M */
+	PCR.i2s_rx_clkm_conf.i2s_rx_clkm_en = 1;
+#endif
 
 	/* Configure MCLK and BCLK dividers:
 	 * - Master TX: MCLK div = 2 (49.152 MHz) + BCLK div = 8 (6.144 MHz).
@@ -238,6 +260,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 	/* Ensure loopback is disabled */
 	I2S0.tx_conf.sig_loopback = 0;
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 	/* Float I2S GPIOs (GPIO 20, 21, 22, 23) to High-Z in PDM mode */
 	GPIO.func_out_sel_cfg[20].out_sel = 256;
 	GPIO.func_out_sel_cfg[20].oen_sel = 1;
@@ -309,7 +332,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		IO_MUX.gpio[5].mcu_sel = 1;
 		IO_MUX.gpio[5].fun_ie = 1;
 
-		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+		esp32_i2s_mclk_bind_to_tx(&I2S0);
 		I2S0.tx_conf.tx_slave_mod = 1;
 		I2S0.tx_conf.tx_start = 0;
 
@@ -352,7 +375,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		/* Connect I2S0_I_SD_PAD_IN_IDX (Signal 28) to din_pin */
 		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
 
-		_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
+		esp32_i2s_mclk_bind_to_rx(&I2S0);
 		I2S0.rx_conf.rx_slave_mod = 1;
 		I2S0.tx_conf.tx_slave_mod = 1;
 		I2S0.tx_conf.tx_start = 0;
@@ -416,7 +439,7 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		esp_rom_gpio_connect_in_signal(4, I2S0_I_BCK_PAD_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(din_pin, I2S0_I_SD_PAD_IN_IDX, false);
 
-		_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+		esp32_i2s_mclk_bind_to_tx(&I2S0);
 		I2S0.tx_conf.tx_slave_mod = 0;
 		I2S0.rx_conf.rx_slave_mod = 0;
 
@@ -426,6 +449,92 @@ static int dai_esp32_pdm_config_set(const struct device *dev,
 		LOG_INF("DAI PDM0 configured in MASTER mode (CLK out on G4, %s, DIN on G%d, rate=3.072MHz)",
 			is_pallas ? "DOUT on G3&G5" : "DOUT disabled (High-Z)", din_pin);
 	}
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+	/* ESP32-C6 PDM Configuration:
+	 * PDM CLK: GPIO 18
+	 * PDM DOUT: GPIO 20
+	 * PDM DIN: GPIO 21
+	 */
+	esp_rom_gpio_pad_unhold(18);
+	esp_rom_gpio_pad_unhold(19);
+	esp_rom_gpio_pad_unhold(20);
+	esp_rom_gpio_pad_unhold(21);
+	esp_rom_gpio_pad_select_gpio(18);
+	esp_rom_gpio_pad_select_gpio(19);
+	esp_rom_gpio_pad_select_gpio(20);
+	esp_rom_gpio_pad_select_gpio(21);
+
+	/* Float unused WS/LRCLK (GPIO 19) */
+	GPIO.func_out_sel_cfg[19].out_sel = 128;
+	GPIO.func_out_sel_cfg[19].oen_sel = 1;
+	GPIO.enable_w1tc.val = (1 << 19);
+
+	if (data->is_slave) {
+		GPIO.func_out_sel_cfg[18].out_sel = 128;
+		GPIO.func_out_sel_cfg[18].oen_sel = 1;
+		GPIO.func_out_sel_cfg[20].out_sel = 128;
+		GPIO.func_out_sel_cfg[20].oen_sel = 1;
+		GPIO.func_out_sel_cfg[21].out_sel = 128;
+		GPIO.func_out_sel_cfg[21].oen_sel = 1;
+		GPIO.enable_w1tc.val = (1 << 18) | (1 << 20) | (1 << 21);
+
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[18]);
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[21]);
+
+		esp_rom_gpio_connect_in_signal(18, I2SI_WS_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(18, I2SI_BCK_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(21, I2SI_SD_IN_IDX, false);
+
+		if (data->is_dmic) {
+			esp_rom_gpio_connect_in_signal(18, I2SO_WS_IN_IDX, false);
+			esp_rom_gpio_connect_in_signal(18, I2SO_BCK_IN_IDX, false);
+			esp_rom_gpio_connect_out_signal(20, I2SO_SD_OUT_IDX, false, false);
+			GPIO.func_out_sel_cfg[20].out_sel = I2SO_SD_OUT_IDX;
+			GPIO.func_out_sel_cfg[20].oen_sel = 1;
+			GPIO.func_out_sel_cfg[20].oen_inv_sel = 0;
+			GPIO.enable_w1ts.val = (1 << 20);
+			PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[20]);
+			esp_rom_gpio_pad_set_drv(20, 3);
+			esp32_i2s_mclk_bind_to_tx(&I2S0);
+		} else {
+			esp32_i2s_mclk_bind_to_rx(&I2S0);
+		}
+		I2S0.rx_conf.rx_slave_mod = 1;
+		I2S0.tx_conf.tx_slave_mod = 1;
+		I2S0.tx_conf.tx_start = 0;
+		LOG_INF("DAI PDM configured in C6 SLAVE mode (CLK on G18, DIN on G21)");
+	} else {
+		esp_rom_gpio_connect_out_signal(18, I2SO_WS_OUT_IDX, false, false);
+		GPIO.func_out_sel_cfg[18].out_sel = I2SO_WS_OUT_IDX;
+		GPIO.func_out_sel_cfg[18].oen_sel = 1;
+		GPIO.func_out_sel_cfg[18].oen_inv_sel = 0;
+		GPIO.enable_w1ts.val = (1 << 18);
+
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[18]);
+		esp_rom_gpio_pad_set_drv(18, 3);
+
+		esp_rom_gpio_connect_out_signal(20, I2SO_SD_OUT_IDX, false, false);
+		GPIO.func_out_sel_cfg[20].out_sel = I2SO_SD_OUT_IDX;
+		GPIO.func_out_sel_cfg[20].oen_sel = 1;
+		GPIO.func_out_sel_cfg[20].oen_inv_sel = 0;
+		GPIO.enable_w1ts.val = (1 << 20);
+
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[20]);
+		esp_rom_gpio_pad_set_drv(20, 3);
+
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[21]);
+
+		esp_rom_gpio_connect_in_signal(18, I2SI_WS_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(18, I2SI_BCK_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(21, I2SI_SD_IN_IDX, false);
+
+		esp32_i2s_mclk_bind_to_tx(&I2S0);
+		I2S0.tx_conf.tx_slave_mod = 0;
+		I2S0.rx_conf.rx_slave_mod = 0;
+		I2S0.tx_conf.tx_start = 1;
+		LOG_INF("DAI PDM configured in C6 MASTER mode (CLK out on G18, DOUT on G20, DIN on G21)");
+	}
+#endif
 
 	I2S0.tx_conf.tx_update = 1;
 	I2S0.rx_conf.rx_update = 1;
@@ -478,10 +587,12 @@ static int dai_esp32_pdm_trigger(const struct device *dev,
 		break;
 	case DAI_TRIGGER_START:
 		if (dir == DAI_DIR_TX || dir == DAI_DIR_BOTH) {
-			_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+			esp32_i2s_mclk_bind_to_tx(&I2S0);
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 			if (data->is_pallas || data->is_dmic) {
 				GPIO.enable_w1ts.val = (1 << 3) | (1 << 5);
 			}
+#endif
 			I2S0.tx_conf.tx_fifo_reset = 1;
 			I2S0.tx_conf.tx_fifo_reset = 0;
 			I2S0.tx_conf.tx_update = 1;
@@ -496,9 +607,9 @@ static int dai_esp32_pdm_trigger(const struct device *dev,
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
 			if (data->is_slave && !data->is_dmic) {
-				_i2s_ll_mclk_bind_to_rx_clk(&I2S0);
+				esp32_i2s_mclk_bind_to_rx(&I2S0);
 			} else {
-				_i2s_ll_mclk_bind_to_tx_clk(&I2S0);
+				esp32_i2s_mclk_bind_to_tx(&I2S0);
 			}
 			I2S0.rx_conf.rx_fifo_reset = 1;
 			I2S0.rx_conf.rx_fifo_reset = 0;
@@ -577,8 +688,15 @@ static int dai_esp32_pdm_init(const struct device *dev)
 	const struct dai_esp32_pdm_config *cfg = dev->config;
 	int ret;
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 	HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = 1;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+	PCR.i2s_conf.i2s_clk_en = 1;
+	PCR.i2s_conf.i2s_rst_en = 0;
+#endif
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.clk_gate.clk_en = 1;
+#endif
 
 	if (cfg->pincfg) {
 		ret = pinctrl_apply_state(cfg->pincfg, PINCTRL_STATE_DEFAULT);
