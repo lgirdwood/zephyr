@@ -167,7 +167,11 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	I2S0.tx_conf.tx_big_endian = 0;
 	I2S0.tx_conf.tx_bit_order = 0;
 	I2S0.tx_conf.tx_chan_equal = 0;
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+	I2S0.conf_single_data = 0;
+#else
 	I2S0.conf_single_data.val = 0;
+#endif
 
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.rx_conf.rx_msb_shift = 1;
@@ -316,7 +320,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		const uint8_t s3_pins[] = {18, 21, 7, 8};
 		for (int i = 0; i < 4; i++) {
 			uint8_t p = s3_pins[i];
-			GPIO.func_out_sel_cfg[p].out_sel = SIG_GPIO_OUT_IDX;
+			GPIO.func_out_sel_cfg[p].func_sel = SIG_GPIO_OUT_IDX;
 			GPIO.func_out_sel_cfg[p].oen_sel = 1;
 			GPIO.func_out_sel_cfg[p].oen_inv_sel = 0;
 			GPIO.pin[p].pad_driver = 0;
@@ -325,8 +329,8 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 			PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[p]);
 			esp_rom_gpio_pad_set_drv(p, 3);
 		}
-		GPIO.enable_w1tc.val = (1 << 18) | (1 << 21) | (1 << 8);
-		GPIO.enable_w1ts.val = (1 << 7);
+		GPIO.enable_w1tc = (1 << 18) | (1 << 21) | (1 << 8);
+		GPIO.enable_w1ts = (1 << 7);
 
 		esp_rom_gpio_connect_in_signal(18, I2S0I_BCK_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(18, I2S0O_BCK_IN_IDX, false);
@@ -334,7 +338,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		esp_rom_gpio_connect_in_signal(21, I2S0O_WS_IN_IDX, false);
 		esp_rom_gpio_connect_in_signal(8, I2S0I_SD_IN_IDX, false);
 		esp_rom_gpio_connect_out_signal(7, I2S0O_SD_OUT_IDX, false, false);
-		GPIO.func_out_sel_cfg[7].out_sel = I2S0O_SD_OUT_IDX;
+		GPIO.func_out_sel_cfg[7].func_sel = I2S0O_SD_OUT_IDX;
 
 		LOG_INF("DAI I2S set to SLAVE mode on ESP32-S3 (BCLK:G18/D9, WS:G21/D10, DIN:G8/D5, DOUT:G7/D4)");
 #else
@@ -476,6 +480,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		const uint8_t s3_pins[] = {18, 21, 7, 8};
 		for (int i = 0; i < 4; i++) {
 			uint8_t p = s3_pins[i];
+			GPIO.func_out_sel_cfg[p].func_sel = SIG_GPIO_OUT_IDX;
 			GPIO.func_out_sel_cfg[p].oen_sel = 1;
 			GPIO.func_out_sel_cfg[p].oen_inv_sel = 0;
 			GPIO.pin[p].pad_driver = 0;
@@ -491,20 +496,20 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 
 		esp_rom_gpio_connect_out_signal(18, I2S0O_BCK_OUT_IDX, false, false);
 		esp_rom_gpio_connect_in_signal(18, I2S0I_BCK_IN_IDX, false);
-		GPIO.func_out_sel_cfg[18].out_sel = I2S0O_BCK_OUT_IDX;
+		GPIO.func_out_sel_cfg[18].func_sel = I2S0O_BCK_OUT_IDX;
 
 		esp_rom_gpio_connect_out_signal(21, I2S0O_WS_OUT_IDX, false, false);
 		esp_rom_gpio_connect_in_signal(21, I2S0I_WS_IN_IDX, false);
-		GPIO.func_out_sel_cfg[21].out_sel = I2S0O_WS_OUT_IDX;
+		GPIO.func_out_sel_cfg[21].func_sel = I2S0O_WS_OUT_IDX;
 
 		esp_rom_gpio_connect_out_signal(7, I2S0O_SD_OUT_IDX, false, false);
-		GPIO.func_out_sel_cfg[7].out_sel = I2S0O_SD_OUT_IDX;
+		GPIO.func_out_sel_cfg[7].func_sel = I2S0O_SD_OUT_IDX;
 
 		esp_rom_gpio_connect_in_signal(8, I2S0I_SD_IN_IDX, false);
-		GPIO.func_out_sel_cfg[8].out_sel = SIG_GPIO_OUT_IDX;
+		GPIO.func_out_sel_cfg[8].func_sel = SIG_GPIO_OUT_IDX;
 
-		GPIO.enable_w1ts.val = (1 << 18) | (1 << 21) | (1 << 7);
-		GPIO.enable_w1tc.val = (1 << 8);
+		GPIO.enable_w1ts = (1 << 18) | (1 << 21) | (1 << 7);
+		GPIO.enable_w1tc = (1 << 8);
 
 		LOG_INF("DAI I2S set to MASTER mode on ESP32-S3 (BCLK:G18/D9, WS:G21/D10, DOUT:G7/D4, DIN:G8/D5)");
 #else
