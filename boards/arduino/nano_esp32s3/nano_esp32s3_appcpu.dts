@@ -1,0 +1,121 @@
+/*
+ * Copyright (c) 2023 Seeed Studio inc.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <espressif/esp32s3/esp32s3_appcpu.dtsi>
+#include <espressif/partitions_0x0_default_16M.dtsi>
+#include "nano_esp32s3-pinctrl.dtsi"
+
+/ {
+	model = "Arduino Nano ESP32S3";
+	compatible = "arduino,nano-esp32s3";
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,ipc_shm = &shm0;
+		zephyr,ipc = &ipm0;
+		zephyr,console = &usb_serial;
+		zephyr,shell-uart = &usb_serial;
+		zephyr,flash = &flash0;
+		zephyr,code-partition = &slot0_partition;
+	};
+
+	aliases {
+		i2c-0 = &i2c0;
+		watchdog0 = &wdt0;
+		led0 = &led0;
+		led1 = &led1;
+		led2 = &led2;
+		led3 = &led3;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+		led0: led_0 {
+			gpios = <&gpio0 0 GPIO_ACTIVE_LOW>;
+			label = "Green";
+		};
+		led1: led_1 {
+			gpios = <&gpio1 13 GPIO_ACTIVE_LOW>;
+			label = "Blue";
+		};
+		led2: led_2 {
+			gpios = <&gpio1 14 GPIO_ACTIVE_LOW>;
+			label = "Red";
+		};
+		led3: led_3 {
+			gpios = <&gpio1 16 GPIO_ACTIVE_HIGH>;
+			label = "Orange";
+		};
+	};
+};
+
+&usb_serial {
+	status = "okay";
+};
+
+&trng0 {
+	status = "okay";
+};
+
+&ipm0 {
+	status = "okay";
+};
+
+&gpio0 {
+	status = "okay";
+};
+
+&gpio1 {
+	status = "okay";
+};
+
+&wdt0 {
+	status = "okay";
+};
+
+/*
+&ledc0 {
+	#pinctrl-0 = <&ledc0_default>;
+	#pinctrl-names = "default";
+	status = "okay";
+	#address-cells = <1>;
+	#size-cells = <0>;
+	channel0@0 {
+		reg = <0x0>;
+		timer = <0>;
+	};
+	channel1@1 {
+		reg = <0x1>;
+		timer = <1>;
+	};
+	channel2@2 {
+		reg = <0x2>;
+		timer = <2>;
+	};
+};
+*/
+
+&mcpwm0 {
+	status = "okay";
+	#pwm-cells = <3>;
+	pinctrl-0 = <&mcpwm0_default>;
+	pinctrl-names = "default";
+	prescale = <255>;
+	prescale-timer0 = <100>;
+	prescale-timer1 = <100>;
+	prescale-timer2 = <100>;
+};
+
+&timer0 {
+	status = "okay";
+};
+
+&timer1 {
+	status = "okay";
+};
+
