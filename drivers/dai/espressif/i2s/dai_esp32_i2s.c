@@ -26,6 +26,7 @@
 #endif
 #include <soc/gpio_struct.h>
 #include <soc/gpio_sig_map.h>
+#include <hal/gpio_ll.h>
 #include <hal/i2s_ll.h>
 #include <esp_rom_gpio.h>
 #include <zephyr/drivers/dma/dma_esp32.h>
@@ -113,6 +114,12 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	/* Configure Master/Slave Mode */
 	I2S0.tx_conf.tx_slave_mod = data->is_slave ? 1 : 0;
 	I2S0.rx_conf.rx_slave_mod = data->is_slave ? 1 : 0;
+
+	/* Reset TX and RX units */
+	I2S0.tx_conf.tx_reset = 1;
+	I2S0.tx_conf.tx_reset = 0;
+	I2S0.rx_conf.rx_reset = 1;
+	I2S0.rx_conf.rx_reset = 0;
 
 	/* Configure TDM / Philips I2S format */
 	I2S0.tx_conf.tx_pdm_en = 0;
@@ -585,8 +592,8 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		esp_rom_gpio_pad_set_drv(23, 3);
 #endif
 
-		/* Start master clock generator */
-		I2S0.tx_conf.tx_start = 1;
+		/* Initialize master clock generator (starts when stream triggers) */
+		I2S0.tx_conf.tx_start = 0;
 
 		LOG_INF("DAI I2S set to MASTER mode (XTAL 40M: N=%u,x=%u,y=%u,z=%u,yn1=%u, bclk_div=%u, BCLK=%u Hz, WS=%u Hz)",
 			div_int, div_x, div_y, div_z, div_yn1, bclk_div, bclk, data->sample_rate);
@@ -652,6 +659,10 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 		break;
 	case DAI_TRIGGER_START:
 		if (dir == DAI_DIR_TX || dir == DAI_DIR_BOTH) {
+			if (!I2S0.tx_conf.tx_start) {
+				I2S0.tx_conf.tx_reset = 1;
+				I2S0.tx_conf.tx_reset = 0;
+			}
 			I2S0.tx_conf.tx_fifo_reset = 1;
 			I2S0.tx_conf.tx_fifo_reset = 0;
 			I2S0.tx_conf.tx_update = 1;
@@ -659,6 +670,29 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			while (I2S0.tx_conf.tx_update && --timeout_tx > 0) {
 				k_busy_wait(1);
 			}
+
+			if (data->is_slave) {
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+				const int ws_pin = 21;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+				const int ws_pin = 19;
+#elif defined(CONFIG_SOC_SERIES_ESP32P4)
+				const int ws_pin = 22;
+#else
+				const int ws_pin = -1;
+#endif
+				if (ws_pin >= 0) {
+					int t = 10000;
+					while (!gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+					}
+					if (t > 0) {
+						t = 10000;
+						while (gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+						}
+					}
+				}
+			}
+
 			I2S0.tx_conf.tx_start = 1;
 			data->tx_state = DAI_STATE_RUNNING;
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
@@ -679,6 +713,10 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 #endif
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
+			if (!I2S0.rx_conf.rx_start) {
+				I2S0.rx_conf.rx_reset = 1;
+				I2S0.rx_conf.rx_reset = 0;
+			}
 			I2S0.rx_conf.rx_fifo_reset = 1;
 			I2S0.rx_conf.rx_fifo_reset = 0;
 			I2S0.rx_conf.rx_update = 1;
@@ -686,6 +724,47 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			while (I2S0.rx_conf.rx_update && --timeout_rx > 0) {
 				k_busy_wait(1);
 			}
+
+			if (data->is_slave) {
+				/* In slave mode with external continuous BCLK/WS,
+				 * synchronize the RX start to the falling edge of WS (1 -> 0 transition).
+				 * In Philips I2S (rx_ws_idle_pol = 0), WS=0 indicates Left channel
+				 * and WS=1 indicates Right channel. Asserting rx_start immediately
+				 * on the falling edge ensures Slot 0 receives Left channel first,
+				 * eliminating the 1-slot channel swap ambiguity.
+				 *
+				 * If the clock is not running yet, the timeout expires cleanly
+				 * and rx_start is asserted.
+				 */
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+				const int ws_pin = 21;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+				const int ws_pin = 19;
+#elif defined(CONFIG_SOC_SERIES_ESP32P4)
+				const int ws_pin = 22;
+#else
+				const int ws_pin = -1;
+#endif
+				if (ws_pin >= 0) {
+					/* Step 1: Wait for WS to be 1 (Right channel) */
+					int t = 10000;
+					while (!gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+					}
+					/* Step 2: Wait for WS falling edge to 0 (Left channel start) */
+					if (t > 0) {
+						t = 10000;
+						while (gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+						}
+					}
+				}
+			} else {
+				/* In master mode, start TX clock if not already running so BCLK/WS are driven */
+				if (!I2S0.tx_conf.tx_start) {
+					I2S0.tx_conf.tx_start = 1;
+					I2S0.tx_conf.tx_update = 1;
+				}
+			}
+
 			I2S0.rx_conf.rx_start = 1;
 			data->rx_state = DAI_STATE_RUNNING;
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
@@ -721,15 +800,17 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			LOG_INF("[DAI STOP] tx_start=%u",
 				(unsigned int)I2S0.tx_conf.tx_start);
 #endif
-			if (data->is_slave) {
-				I2S0.tx_conf.tx_start = 0;
-				I2S0.tx_conf.tx_update = 1;
-			}
+			I2S0.tx_conf.tx_start = 0;
+			I2S0.tx_conf.tx_update = 1;
 			data->tx_state = DAI_STATE_READY;
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
 			I2S0.rx_conf.rx_start = 0;
 			I2S0.rx_conf.rx_update = 1;
+			if (!data->is_slave && data->tx_state != DAI_STATE_RUNNING) {
+				I2S0.tx_conf.tx_start = 0;
+				I2S0.tx_conf.tx_update = 1;
+			}
 			data->rx_state = DAI_STATE_READY;
 		}
 		break;
