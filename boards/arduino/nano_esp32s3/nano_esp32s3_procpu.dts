@@ -101,43 +101,6 @@
 	bus-speed = <125000>;
 };
 
-&mcpwm0 {
-	status = "okay";
-	#pwm-cells = <3>;
-	pinctrl-0 = <&mcpwm0_default>;
-	pinctrl-names = "default";
-	prescale = <255>;
-	prescale-timer0 = <100>;
-	prescale-timer1 = <100>;
-	prescale-timer2 = <100>;
-};
-
-&pcnt {
-	status = "okay";
-	pinctrl-0 = <&pcnt_default>;
-	pinctrl-names = "default";
-};
-
-&ledc0 {
-	pinctrl-0 = <&ledc0_default>;
-	pinctrl-names = "default";
-	status = "okay";
-	#address-cells = <1>;
-	#size-cells = <0>;
-	channel0@0 {
-		reg = <0x0>;
-		timer = <0>;
-	};
-	channel1@1 {
-		reg = <0x1>;
-		timer = <1>;
-	};
-	channel2@2 {
-		reg = <0x2>;
-		timer = <2>;
-	};
-};
-
 &timer0 {
 	status = "okay";
 };
