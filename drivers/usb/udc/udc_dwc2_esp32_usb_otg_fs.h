@@ -20,6 +20,10 @@
 #include <hal/gpio_ll.h>
 #include <soc/gpio_sig_map.h>
 
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+#include <soc/usb_serial_jtag_reg.h>
+#endif
+
 struct phy_context_t {
 	usb_phy_target_t target;
 	usb_phy_controller_t controller;
@@ -121,10 +125,16 @@ static inline int esp32_usb_otg_enable_phy(struct phy_context_t *phy_ctx, bool e
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 		usb_wrap_ll_phy_select(phy_ctx->wrap_hal.dev, 0);
 #endif
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+		CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+#endif
 		usb_wrap_ll_phy_enable_pad(phy_ctx->wrap_hal.dev, true);
 		LOG_DBG("PHY enabled");
 	} else {
 		usb_wrap_ll_phy_enable_pad(phy_ctx->wrap_hal.dev, false);
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+		SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+#endif
 		LOG_DBG("PHY disabled");
 	}
 
