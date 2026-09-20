@@ -236,6 +236,26 @@ static void rpi_pico_ep_cancel(const struct device *dev, const uint8_t ep)
 	LOG_INF("Canceled ep 0x%02x transaction", ep);
 }
 
+static inline void dpram_memcpy_to(volatile void *dst, const void *src, size_t len)
+{
+	volatile uint8_t *d = (volatile uint8_t *)dst;
+	const uint8_t *s = (const uint8_t *)src;
+
+	for (size_t i = 0; i < len; i++) {
+		d[i] = s[i];
+	}
+}
+
+static inline void dpram_memcpy_from(void *dst, const volatile void *src, size_t len)
+{
+	uint8_t *d = (uint8_t *)dst;
+	const volatile uint8_t *s = (const volatile uint8_t *)src;
+
+	for (size_t i = 0; i < len; i++) {
+		d[i] = s[i];
+	}
+}
+
 static int rpi_pico_prep_rx(const struct device *dev,
 			    struct net_buf *const buf, struct udc_ep_config *const cfg)
 {
@@ -260,12 +280,12 @@ static int rpi_pico_prep_rx(const struct device *dev,
 
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl);
 	/*
-	 * By default, clk_sys runs at 125MHz, wait 3 nop instructions before
-	 * setting the AVAILABLE bit. See 4.1.2.5.1. Concurrent access.
+	 * Wait for write to propagate across clk_sys -> clk_usb clock domain crossing
+	 * (at least 32-40 ns; on RP2350 at 150MHz, 16 NOPs provide sufficient margin).
 	 */
-	arch_nop();
-	arch_nop();
-	arch_nop();
+	for (volatile int i = 0; i < 16; i++) {
+		arch_nop();
+	}
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl | USB_BUF_CTRL_AVAIL);
 
 	irq_unlock(lock_key);
@@ -290,7 +310,7 @@ static int rpi_pico_prep_tx(const struct device *dev,
 	lock_key = irq_lock();
 
 	len = MIN(cfg->mps, buf->len);
-	memcpy(ep_data->buf, buf->data, len);
+	dpram_memcpy_to(ep_data->buf, buf->data, len);
 
 	LOG_DBG("Prepare TX ep 0x%02x len %u pid: %u",
 		cfg->addr, len, ep_data->next_pid);
@@ -302,12 +322,12 @@ static int rpi_pico_prep_tx(const struct device *dev,
 
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl);
 	/*
-	 * By default, clk_sys runs at 125MHz, wait 3 nop instructions before
-	 * setting the AVAILABLE bit. See 4.1.2.5.1. Concurrent access.
+	 * Wait for write to propagate across clk_sys -> clk_usb clock domain crossing
+	 * (at least 32-40 ns; on RP2350 at 150MHz, 16 NOPs provide sufficient margin).
 	 */
-	arch_nop();
-	arch_nop();
-	arch_nop();
+	for (volatile int i = 0; i < 16; i++) {
+		arch_nop();
+	}
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl | USB_BUF_CTRL_AVAIL);
 
 	irq_unlock(lock_key);
@@ -521,7 +541,9 @@ static void rpi_pico_handle_buff_status_out(const struct device *dev, const uint
 	}
 
 	len = read_buf_ctrl_reg(dev, ep) & USB_BUF_CTRL_LEN_MASK;
-	net_buf_add_mem(buf, ep_data->buf, MIN(len, net_buf_tailroom(buf)));
+	size_t copy_len = MIN(len, net_buf_tailroom(buf));
+	void *dst = net_buf_add(buf, copy_len);
+	dpram_memcpy_from(dst, ep_data->buf, copy_len);
 
 	if (net_buf_tailroom(buf) && len == udc_mps_ep_size(ep_cfg)) {
 		__unused int err;
@@ -924,9 +946,12 @@ static int udc_rpi_pico_enable(const struct device *dev)
 		return ret;
 	}
 
-	/* Clear registers and DPRAM */
-	memset(base, 0, sizeof(usb_hw_t));
+	/* Clear DPRAM */
 	memset(dpram, 0, sizeof(usb_device_dpram_t));
+
+#if defined(USB_LINESTATE_TUNING_RESET)
+	sys_write32(USB_LINESTATE_TUNING_RESET, (mm_reg_t)&base->linestate_tuning);
+#endif
 
 	/* Connect USB controller to the onboard PHY */
 	sys_write32(USB_USB_MUXING_TO_PHY_BITS | USB_USB_MUXING_SOFTCON_BITS,
