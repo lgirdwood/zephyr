@@ -37,6 +37,25 @@
 #define UAOLxPCMSyRA_OFFSET(y)			(0x4C + 0x20 * (y))
 #define UAOLxPCMSyFSA_OFFSET(y)			(0x50 + 0x20 * (y))
 
+union UAOLCAP {
+	uint32_t full;
+	struct {
+		uint32_t s6      : 1;
+		uint32_t s12     : 1;
+		uint32_t s24     : 1;
+		uint32_t s48     : 1;
+		uint32_t s96     : 1;
+		uint32_t s192    : 1;
+		uint32_t rsvd19  : 14;
+		uint32_t slcount : 3;
+		uint32_t lss     : 1;
+		uint32_t nsdo    : 2;
+		uint32_t ofls    : 1;
+		uint32_t intc    : 1;
+		uint32_t alt     : 4;
+	} part;
+};
+
 union UAOLCTL {
 	uint32_t full;
 	struct {

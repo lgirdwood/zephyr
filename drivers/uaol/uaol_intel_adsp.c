@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <string.h>
 #include <adsp_shim.h>
 #include <adsp_timestamp.h>
 #include <zephyr/kernel.h>
@@ -215,6 +216,34 @@ static int uaol_intel_adsp_set_power(const struct device *dev, bool power)
 	}
 
 	return 0;
+}
+
+/*
+ * Check whether the host has offloaded link control to the DSP.
+ *
+ * The multi link segment (shim) and IP register spaces are only routed to the
+ * DSP once the host has set UAOLCTL.OFLEN; reading them while it is clear
+ * raises a synchronous PIF data error. UAOLCAP and UAOLCTL live in the HDAML
+ * capability structure and stay readable either way, so they can be used to
+ * probe for access before touching the gated spaces.
+ *
+ * Note this is independent of link power: uaol_intel_adsp_set_power() drives
+ * SPA and waits for CPA, which says the link is powered, not that its
+ * registers are visible to the DSP.
+ */
+static bool uaol_intel_adsp_offload_enabled(const struct device *dev)
+{
+	struct uaol_intel_adsp_data *dp = dev->data;
+	union UAOLCAP cap;
+	union UAOLCTL ctl;
+
+	cap.full = sys_read32(UAOLCAP_ADDR(dp));
+	if (!cap.part.ofls) {
+		return false;
+	}
+
+	ctl.full = sys_read32(UAOLCTL_ADDR(dp));
+	return ctl.part.oflen;
 }
 
 /*
@@ -843,6 +872,7 @@ static int uaol_intel_adsp_get_capabilities(const struct device *dev,
 					    struct uaol_capabilities *caps)
 {
 	k_spinlock_key_t key;
+	bool offloaded;
 	int ret;
 
 	ret = pm_device_runtime_get(dev);
@@ -853,9 +883,18 @@ static int uaol_intel_adsp_get_capabilities(const struct device *dev,
 
 	key = k_spin_lock(&lock);
 
-	uaol_intel_adsp_read_capabilities(dev, caps);
+	offloaded = uaol_intel_adsp_offload_enabled(dev);
+	if (offloaded) {
+		uaol_intel_adsp_read_capabilities(dev, caps);
+	} else {
+		memset(caps, 0, sizeof(*caps));
+	}
 
 	k_spin_unlock(&lock, key);
+
+	if (!offloaded) {
+		LOG_WRN("Link control not offloaded to DSP, capabilities unavailable");
+	}
 
 	ret = pm_device_runtime_put(dev);
 	if (ret) {
@@ -863,7 +902,7 @@ static int uaol_intel_adsp_get_capabilities(const struct device *dev,
 		return -EIO;
 	}
 
-	return ret;
+	return offloaded ? 0 : -ENODEV;
 }
 
 static DEVICE_API(uaol, uaol_intel_adsp_api_funcs) = {
