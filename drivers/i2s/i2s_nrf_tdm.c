@@ -756,11 +756,19 @@ static int start_transfer(struct tdm_drv_data *drv_data)
 	    !get_next_tx_buffer(drv_data, &initial_buffers)) {
 		LOG_ERR("No TX buffer available");
 		ret = -ENOMEM;
-	} else if (drv_data->active_dir != I2S_DIR_TX && /* -> RX to be started */
-		   !get_next_rx_buffer(drv_data, &initial_buffers)) {
-		/* Failed to allocate next RX buffer */
-		ret = -ENOMEM;
-	} else {
+	}
+	if (ret == 0 && drv_data->active_dir != I2S_DIR_TX) { /* -> RX to be started */
+		if (drv_data->active_dir == I2S_DIR_RX) {
+			initial_buffers.buffer_size =
+				drv_data->rx.cfg.block_size / sizeof(uint32_t);
+		}
+		if (!get_next_rx_buffer(drv_data, &initial_buffers)) {
+			/* Failed to allocate next RX buffer */
+			LOG_ERR("No RX buffer available");
+			ret = -ENOMEM;
+		}
+	}
+	if (ret == 0) {
 		/* It is necessary to set buffer size here only for I2S_DIR_RX,
 		 * because only then the get_next_tx_buffer() call in the if
 		 * condition above gets short-circuited.
@@ -1097,7 +1105,7 @@ static void data_handler(const struct device *dev, const tdm_buffers_t *released
 		/* If the last buffer that was to be transferred has just been
 		 * released, it is time to stop the transfer.
 		 */
-		if (released->p_tx_buffer == drv_data->last_tx_buffer) {
+		if (drv_data->stop && released->p_tx_buffer == drv_data->last_tx_buffer) {
 			drv_data->discard_rx = true;
 			stop_transfer = true;
 		} else {
