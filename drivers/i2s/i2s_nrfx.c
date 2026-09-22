@@ -240,7 +240,7 @@ static void data_handler(const struct device *dev,
 		/* If the last buffer that was to be transferred has just been
 		 * released, it is time to stop the transfer.
 		 */
-		if (released->p_tx_buffer == drv_data->last_tx_buffer) {
+		if (drv_data->stop && released->p_tx_buffer == drv_data->last_tx_buffer) {
 			drv_data->discard_rx = true;
 			stop_transfer = true;
 		} else {
@@ -422,16 +422,16 @@ static int i2s_nrfx_configure(const struct device *dev, enum i2s_dir dir,
 	if (nrfx_cfg.mode == NRF_I2S_MODE_MASTER ||
 	    nrf_i2s_mck_pin_connected_check(drv_data->i2s.p_reg)) {
 		find_suitable_clock(drv_cfg, &nrfx_cfg, i2s_cfg);
-		/* Unless the PCLK32M source is used with the HFINT oscillator
-		 * (which is always available without any additional actions),
-		 * it is required to request the proper clock to be running
-		 * before starting the transfer itself.
-		 */
-		drv_data->request_clock = (drv_cfg->clk_src != PCLK32M);
 	} else {
 		nrfx_cfg.prescalers.mck_setup = NRF_I2S_MCK_DISABLED;
-		drv_data->request_clock = false;
 	}
+
+	/* Unless the PCLK32M source is used with the HFINT oscillator
+	 * (which is always available without any additional actions),
+	 * it is required to request the proper clock to be running
+	 * before starting the transfer itself.
+	 */
+	drv_data->request_clock = (drv_cfg->clk_src != PCLK32M);
 
 	if ((i2s_cfg->options & I2S_OPT_LOOPBACK) ||
 	    (i2s_cfg->options & I2S_OPT_PINGPONG)) {
@@ -569,15 +569,24 @@ static int start_transfer(struct i2s_nrfx_drv_data *drv_data)
 	nrfx_i2s_buffers_t initial_buffers = { 0 };
 	int ret;
 
+	ret = 0;
 	if (drv_data->active_dir != I2S_DIR_RX && /* -> TX to be started */
 	    !get_next_tx_buffer(drv_data, &initial_buffers)) {
 		LOG_ERR("No TX buffer available");
 		ret = -ENOMEM;
-	} else if (drv_data->active_dir != I2S_DIR_TX && /* -> RX to be started */
-		   !get_next_rx_buffer(drv_data, &initial_buffers)) {
-		/* Failed to allocate next RX buffer */
-		ret = -ENOMEM;
-	} else {
+	}
+	if (ret == 0 && drv_data->active_dir != I2S_DIR_TX) { /* -> RX to be started */
+		if (drv_data->active_dir == I2S_DIR_RX) {
+			initial_buffers.buffer_size =
+				drv_data->rx.cfg.block_size / sizeof(uint32_t);
+		}
+		if (!get_next_rx_buffer(drv_data, &initial_buffers)) {
+			/* Failed to allocate next RX buffer */
+			LOG_ERR("No RX buffer available");
+			ret = -ENOMEM;
+		}
+	}
+	if (ret == 0) {
 		int err;
 
 		/* It is necessary to set buffer size here only for I2S_DIR_RX,
