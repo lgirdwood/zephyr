@@ -102,6 +102,7 @@ struct udc_dwc2_data {
 	uint16_t iso_in_rearm;
 	uint16_t iso_out_rearm;
 	uint16_t ep_out_disable;
+	uint16_t ep_in_disable;
 	uint16_t ep_out_stall;
 	uint16_t txf_set;
 	uint16_t pending_tx_flush;

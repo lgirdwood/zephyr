@@ -28,7 +28,9 @@ static int assign_ep_addr(const struct device *dev,
 	int ret = -ENODEV;
 	uint8_t req_ep = ed->bEndpointAddress;
 
-	if (req_ep != 0) {
+	if (req_ep != 0 &&
+	    !usbd_ep_bm_is_set(config_ep_bm, req_ep) &&
+	    !usbd_ep_bm_is_set(class_ep_bm, req_ep)) {
 		uint16_t mps = sys_le16_to_cpu(ed->wMaxPacketSize);
 
 		ret = udc_ep_try_config(dev, req_ep, ed->bmAttributes, &mps, ed->bInterval);

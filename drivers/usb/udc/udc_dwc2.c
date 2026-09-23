@@ -170,12 +170,23 @@ static mem_addr_t dwc2_get_dxepctl_reg(const struct device *dev, const uint8_t e
 static uint32_t dwc2_ftx_avail(const struct device *dev, const uint32_t idx)
 {
 	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
+	struct udc_dwc2_data *const priv = udc_get_private(dev);
+
+	if (idx == 0) {
+		uint32_t gnptxsts = sys_read32((mem_addr_t)&base->gnptxsts);
+		uint32_t words = gnptxsts & 0xFFFF;
+
+		if (words == 0) {
+			return priv->max_txfifo_depth[0] * 4;
+		}
+		return words * 4;
+	}
+
 	mem_addr_t reg = (mem_addr_t)&base->in_ep[idx].dtxfsts;
-	uint32_t dtxfsts;
+	uint32_t dtxfsts = sys_read32(reg);
+	uint32_t avail = usb_dwc2_get_dtxfsts_ineptxfspcavail(dtxfsts) * 4;
 
-	dtxfsts = sys_read32(reg);
-
-	return usb_dwc2_get_dtxfsts_ineptxfspcavail(dtxfsts) * 4;
+	return avail;
 }
 
 static uint32_t dwc2_get_iept_pktctn(const struct device *dev, const uint32_t idx)
@@ -406,7 +417,8 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 		 * packet (for periodic transfers at least the number of packets
 		 * per microframe).
 		 */
-		if ((len > max_transfer) && ((1 + addnl) > max_pkts)) {
+		if (cfg->addr != USB_CONTROL_EP_IN &&
+		    (len > max_transfer) && ((1 + addnl) > max_pkts)) {
 			LOG_ERR("ep 0x%02x FIFO space is too low, %u (%u)",
 				cfg->addr, spcavail, len);
 			return -EAGAIN;
@@ -467,7 +479,7 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 	}
 
 	diepctl = sys_read32(diepctl_reg);
-	if (!(diepctl & USB_DWC2_DEPCTL_USBACTEP)) {
+	if (cfg->addr != USB_CONTROL_EP_IN && !(diepctl & USB_DWC2_DEPCTL_USBACTEP)) {
 		/* Do not attempt to write data on inactive endpoint, because
 		 * no fifo is assigned to inactive endpoint and therefore it is
 		 * possible that the write will corrupt other endpoint fifo.
@@ -1139,8 +1151,27 @@ static int dwc2_set_dedicated_fifo(const struct device *dev,
 	}
 
 	if (priv->dynfifosizing) {
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+		/* ESP32-S3 Synopsys DWC2 SPRAM total: 200 words (800 bytes)
+		 * Rx FIFO: 96 words (0..95, 384 B)
+		 * TxFIFO 0 (EP0 IN): 16 words (96..111, 64 B)
+		 * EP1 IN (CDC-ACM Int):  addr 112 (0x70), depth  8 words (32 B)  [112..119]
+		 * EP2 IN (CDC-ACM Bulk): addr 120 (0x78), depth 16 words (64 B)  [120..135]
+		 * EP3 IN (UAC2 ISO IN):  addr 136 (0x88), depth 52 words (208 B) [136..187]
+		 * EP4 IN:                addr 188 (0xBC), depth  4 words (16 B)  [188..191]
+		 * EP5 IN:                addr 192 (0xC0), depth  4 words (16 B)  [192..195]
+		 * EP6 IN:                addr 196 (0xC4), depth  4 words (16 B)  [196..199]
+		 * Total SPRAM used: 200 <= 200 words. Fully non-overlapping!
+		 */
+		static const uint32_t ep_static_addr[7] = {0, 112, 120, 136, 188, 192, 196};
+		static const uint32_t ep_static_dep[7]  = {0,   8,  16,  52,   4,   4,   4};
+#elif defined(CONFIG_SOC_SERIES_ESP32P4)
 		static const uint32_t ep_static_addr[7] = {0, 0x0070, 0x00B0, 0x00B0, 0x0070, 0x00B0, 0x00B0};
 		static const uint32_t ep_static_dep[7]  = {0, 64, 20, 20, 64, 20, 20};
+#else
+		static const uint32_t ep_static_addr[7] = {0, 0x0070, 0x00B0, 0x00B0, 0x0070, 0x00B0, 0x00B0};
+		static const uint32_t ep_static_dep[7]  = {0, 64, 20, 20, 64, 20, 20};
+#endif
 
 		if (ep_idx >= 1 && ep_idx <= 6) {
 			txfaddr = ep_static_addr[ep_idx];
@@ -1428,6 +1459,18 @@ static void udc_dwc2_ep_disable(const struct device *dev,
 			/* Endpoint gets disabled in GOUTNAKEFF handler */
 		}
 	} else {
+		if (!(dxepctl & USB_DWC2_DEPCTL_EPENA)) {
+			/* Endpoint is not enabled, already disabled */
+			k_event_post(&priv->ep_disabled, BIT(ep_bit));
+			if (stall) {
+				dxepctl |= USB_DWC2_DEPCTL_STALL;
+				sys_write32(dxepctl, dxepctl_reg);
+			}
+			udc_ep_set_busy(cfg, false);
+			return;
+		}
+
+		priv->ep_in_disable |= BIT(ep_idx);
 		dxepctl |= USB_DWC2_DEPCTL_SNAK;
 		if (stall) {
 			/* For IN endpoints STALL is set in addition to SNAK */
@@ -1673,7 +1716,12 @@ static int udc_dwc2_host_wakeup(const struct device *dev)
 /* Return actual USB device speed */
 static enum udc_bus_speed udc_dwc2_device_speed(const struct device *dev)
 {
+	struct udc_data *const data = dev->data;
 	struct udc_dwc2_data *const priv = udc_get_private(dev);
+
+	if (!data->caps.hs) {
+		return UDC_BUS_SPEED_FS;
+	}
 
 	switch (priv->enumspd) {
 	case USB_DWC2_DSTS_ENUMSPD_HS3060:
@@ -1936,6 +1984,9 @@ static int udc_dwc2_init_controller(const struct device *dev)
 	 */
 	val = sys_read32((mem_addr_t)&base->gnptxfsiz);
 	priv->max_txfifo_depth[0] = usb_dwc2_get_gnptxfsiz_nptxfdep(val);
+	if (priv->max_txfifo_depth[0] == 0) {
+		priv->max_txfifo_depth[0] = UDC_DWC2_FIFO0_DEPTH;
+	}
 	for (uint8_t i = 1; i < priv->ineps; i++) {
 		priv->max_txfifo_depth[i] = dwc2_get_txfdep(dev, i - 1);
 	}
@@ -2190,8 +2241,10 @@ static int dwc2_driver_preinit(const struct device *dev)
 	k_event_init(&priv->ep_disabled);
 	k_event_set(&priv->ep_disabled, UINT32_MAX);
 	priv->ep_out_disable = 0;
+	priv->ep_in_disable = 0;
 	priv->ep_out_stall = 0;
 	priv->iso_enabled = 0;
+	priv->enumspd = USB_DWC2_DSTS_ENUMSPD_FS48;
 
 	data->caps.rwup = true;
 	data->caps.addr_before_status = true;
@@ -2350,6 +2403,9 @@ static void dwc2_on_bus_reset(const struct device *dev)
 
 	/* Speed enumeration must happen after reset. */
 	priv->enumdone = 0;
+	priv->enumspd = USB_DWC2_DSTS_ENUMSPD_FS48;
+	priv->ep_in_disable = 0;
+	priv->ep_out_disable = 0;
 }
 
 static void dwc2_handle_enumdone(const struct device *dev)
@@ -2503,7 +2559,8 @@ static inline void dwc2_handle_iepint(const struct device *dev)
 				/* Status stage enabled endpoint. NAK will be
 				 * cleared in STSPHSERCVD interrupt.
 				 */
-			} else if (diepctl & USB_DWC2_DEPCTL_EPENA) {
+			} else if ((priv->ep_in_disable & BIT(n)) && (diepctl & USB_DWC2_DEPCTL_EPENA)) {
+				priv->ep_in_disable &= ~BIT(n);
 				diepctl &= ~USB_DWC2_DEPCTL_EPENA;
 				diepctl |= USB_DWC2_DEPCTL_EPDIS;
 				sys_write32(diepctl, diepctl_reg);

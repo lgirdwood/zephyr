@@ -67,6 +67,10 @@ static inline int esp32_usb_otg_init(const struct device *dev,
 		return ret;
 	}
 
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+	CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+#endif
+
 	/* pinout config to work in USB_OTG_MODE_DEVICE */
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_OTG11_IDDIG_PAD_IN_IDX,

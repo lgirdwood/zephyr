@@ -443,7 +443,8 @@ static struct net_buf *sreq_get_desc_cfg(struct usbd_context *const uds_ctx,
 			get_desc_speed = USBD_SPEED_FS;
 		}
 	} else {
-		get_desc_speed = speed;
+		get_desc_speed = (speed == USBD_SPEED_HS && uds_ctx->hs_desc) ?
+				 USBD_SPEED_HS : USBD_SPEED_FS;
 	}
 
 	cfg_nd = usbd_config_get(uds_ctx, get_desc_speed, idx + 1);
@@ -584,15 +585,10 @@ static struct net_buf *sreq_get_desc_dev(struct usbd_context *const uds_ctx)
 	struct net_buf *buf;
 	size_t len;
 
-	switch (usbd_bus_speed(uds_ctx)) {
-	case USBD_SPEED_FS:
-		head = uds_ctx->fs_desc;
-		break;
-	case USBD_SPEED_HS:
+	if (usbd_bus_speed(uds_ctx) == USBD_SPEED_HS && uds_ctx->hs_desc) {
 		head = uds_ctx->hs_desc;
-		break;
-	default:
-		return NULL;
+	} else {
+		head = uds_ctx->fs_desc;
 	}
 
 	if (head == NULL) {
@@ -726,15 +722,10 @@ static struct net_buf *sreq_get_desc_bos(struct usbd_context *const uds_ctx)
 		return NULL;
 	}
 
-	switch (usbd_bus_speed(uds_ctx)) {
-	case USBD_SPEED_FS:
-		dev_dsc = uds_ctx->fs_desc;
-		break;
-	case USBD_SPEED_HS:
+	if (usbd_bus_speed(uds_ctx) == USBD_SPEED_HS && uds_ctx->hs_desc) {
 		dev_dsc = uds_ctx->hs_desc;
-		break;
-	default:
-		return NULL;
+	} else {
+		dev_dsc = uds_ctx->fs_desc;
 	}
 
 	if (dev_dsc == NULL) {
@@ -1275,6 +1266,8 @@ ctrl_xfer_stall:
 int usbd_init_control_pipe(struct usbd_context *const uds_ctx, bool enqueue_setup)
 {
 	int ret = 0;
+
+	uds_ctx->status.speed = USBD_SPEED_FS;
 
 	if (enqueue_setup) {
 		/* Signal to UDC that stack is ready to process SETUP data */

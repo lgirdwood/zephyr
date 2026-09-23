@@ -22,6 +22,11 @@ LOG_MODULE_REGISTER(usbd_dev, CONFIG_USBD_LOG_LEVEL);
 
 enum usbd_speed usbd_bus_speed(const struct usbd_context *const uds_ctx)
 {
+	if (!IS_ENABLED(CONFIG_UDC_DRIVER_HIGH_SPEED_SUPPORT_ENABLED) ||
+	    !uds_ctx->hs_desc) {
+		return USBD_SPEED_FS;
+	}
+
 	return uds_ctx->status.speed;
 }
 
