@@ -595,6 +595,8 @@ static void rpi_pico_isr_handler(const struct device *dev)
 
 	if (status & USB_INTS_DEV_SOF_BITS) {
 		handled |= USB_INTS_DEV_SOF_BITS;
+		/* DEV_SOF interrupt in RP2040/RP2350 hardware is cleared by reading SOF_RD */
+		(void)sys_read32((mm_reg_t)&base->sof_rd);
 		udc_submit_sof_event(dev);
 	}
 
