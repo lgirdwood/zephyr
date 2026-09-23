@@ -946,8 +946,15 @@ static int udc_rpi_pico_enable(const struct device *dev)
 		return ret;
 	}
 
-	/* Clear DPRAM */
-	memset(dpram, 0, sizeof(usb_device_dpram_t));
+	/*
+	 * Clear DPRAM using 32-bit word writes.
+	 * libc memset() uses 64-bit 'strd' on Cortex-M33 which causes an
+	 * immediate APB BusFault when accessing USB DPRAM at 0x50100000.
+	 */
+	volatile uint32_t *dpram_words = (volatile uint32_t *)dpram;
+	for (size_t i = 0; i < sizeof(usb_device_dpram_t) / sizeof(uint32_t); i++) {
+		dpram_words[i] = 0;
+	}
 
 #if defined(USB_LINESTATE_TUNING_RESET)
 	sys_write32(USB_LINESTATE_TUNING_RESET, (mm_reg_t)&base->linestate_tuning);
