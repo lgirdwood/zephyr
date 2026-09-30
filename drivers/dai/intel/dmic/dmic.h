@@ -8,6 +8,7 @@
 #define __INTEL_DAI_DRIVER_DMIC_H__
 
 #include <zephyr/sys/util_macro.h>
+#include <zephyr/spinlock.h>
 
 /* The microphones create a low frequency thump sound when clock is enabled.
  * The unmute linear gain ramp chacteristic is defined here.
@@ -144,6 +145,8 @@ enum dai_dmic_frame_format {
 
 /* Common data for all DMIC DAI instances */
 struct dai_dmic_global_shared {
+	struct k_spinlock lock;
+	int sref;
 	uint32_t active_fifos_mask;	/* Bits (dai->index) are set to indicate active FIFO */
 	uint32_t pause_mask;		/* Bits (dai->index) are set to indicate driver pause */
 };

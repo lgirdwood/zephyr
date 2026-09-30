@@ -275,8 +275,12 @@ static inline void dai_dmic_en_clk_gating(const struct dai_intel_dmic *dmic)
 {
 	/* Enable DMIC clock gating */
 #if defined(CONFIG_SOC_ACE20_LNL) || defined(CONFIG_SOC_ACE30) || defined(CONFIG_SOC_ACE40)
-	sys_write32((sys_read32(dmic->vshim_base + DMICLVSCTL_OFFSET) & ~DMICLVSCTL_DCGD),
-		    dmic->vshim_base + DMICLVSCTL_OFFSET);
+	uint32_t base = dai_dmic_base(dmic);
+
+	if (sys_read32(base + DMICLCTL_OFFSET) & DMICLCTL_CPA) {
+		sys_write32((sys_read32(dmic->vshim_base + DMICLVSCTL_OFFSET) & ~DMICLVSCTL_DCGD),
+			    dmic->vshim_base + DMICLVSCTL_OFFSET);
+	}
 #else /* All other CAVS and ACE platforms */
 	sys_write32((sys_read32(dmic->shim_base + DMICLCTL_OFFSET) & ~DMICLCTL_DCGD),
 		    dmic->shim_base + DMICLCTL_OFFSET);
@@ -809,15 +813,16 @@ static void dai_dmic_probe_wrapper(const struct device *dev)
 	struct dai_intel_dmic *dmic = (struct dai_intel_dmic *)dev->data;
 	k_spinlock_key_t key;
 
-	key = k_spin_lock(&dmic->lock);
+	key = k_spin_lock(&dai_dmic_global.lock);
 
-	if (dmic->sref == 0) {
+	if (dai_dmic_global.sref == 0) {
 		dai_dmic_probe(dmic);
 	}
+	dmic->state = DAI_STATE_NOT_READY;
 
-	dmic->sref++;
+	dai_dmic_global.sref++;
 
-	k_spin_unlock(&dmic->lock, key);
+	k_spin_unlock(&dai_dmic_global.lock, key);
 }
 
 static int dai_dmic_remove_wrapper(const struct device *dev)
@@ -826,13 +831,15 @@ static int dai_dmic_remove_wrapper(const struct device *dev)
 	k_spinlock_key_t key;
 	int ret = 0;
 
-	key = k_spin_lock(&dmic->lock);
+	key = k_spin_lock(&dai_dmic_global.lock);
 
-	if (--dmic->sref == 0) {
+	dmic->state = DAI_STATE_NOT_READY;
+
+	if (--dai_dmic_global.sref == 0) {
 		ret = dai_dmic_remove(dmic);
 	}
 
-	k_spin_unlock(&dmic->lock, key);
+	k_spin_unlock(&dai_dmic_global.lock, key);
 
 	return ret;
 }
