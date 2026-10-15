@@ -13,6 +13,7 @@
 
 #include <xtensa_exc.h>
 #include <xtensa_internal.h>
+#include <zephyr/llext/symbol.h>
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(os, CONFIG_KERNEL_LOG_LEVEL);
@@ -142,6 +143,12 @@ FUNC_NORETURN void arch_syscall_oops(void *ssf)
 
 	CODE_UNREACHABLE;
 }
+
+/*
+ * Implemented in assembly, called by the inline ARCH_EXCEPT(), i.e. by
+ * k_panic(), k_oops() and failed assertions, also in extensions
+ */
+EXPORT_SYMBOL(xtensa_arch_except);
 
 #ifdef CONFIG_USERSPACE
 void z_impl_xtensa_user_fault(unsigned int reason)
