@@ -980,25 +980,33 @@ int do_llext_load(struct llext_loader *ldr, struct llext *ext,
 		goto out;
 	}
 
-	LOG_DBG("Counting exported symbols...");
-	ret = llext_count_export_syms(ldr, ext);
-	if (ret != 0) {
-		LOG_ERR("Failed to count exported ELF symbols, ret %d", ret);
-		goto out;
-	}
+	/*
+	 * The table of the extension's own global symbols isn't needed for
+	 * linking, it's only used to export all of them, and kept for
+	 * debugging below.
+	 */
+	if (IS_ENABLED(CONFIG_LLEXT_IMPORT_ALL_GLOBALS) ||
+	    IS_ENABLED(CONFIG_LLEXT_LOG_LEVEL_DBG)) {
+		LOG_DBG("Counting exported symbols...");
+		ret = llext_count_export_syms(ldr, ext);
+		if (ret != 0) {
+			LOG_ERR("Failed to count exported ELF symbols, ret %d", ret);
+			goto out;
+		}
 
-	LOG_DBG("Allocating memory for symbol table...");
-	ret = llext_allocate_symtab(ldr, ext);
-	if (ret != 0) {
-		LOG_ERR("Failed to allocate extension symbol table, ret %d", ret);
-		goto out;
-	}
+		LOG_DBG("Allocating memory for symbol table...");
+		ret = llext_allocate_symtab(ldr, ext);
+		if (ret != 0) {
+			LOG_ERR("Failed to allocate extension symbol table, ret %d", ret);
+			goto out;
+		}
 
-	LOG_DBG("Copying symbols...");
-	ret = llext_copy_symbols(ldr, ext, ldr_parm);
-	if (ret != 0) {
-		LOG_ERR("Failed to copy symbols, ret %d", ret);
-		goto out;
+		LOG_DBG("Copying symbols...");
+		ret = llext_copy_symbols(ldr, ext, ldr_parm);
+		if (ret != 0) {
+			LOG_ERR("Failed to copy symbols, ret %d", ret);
+			goto out;
+		}
 	}
 
 	if (ldr_parm->relocate_local) {
