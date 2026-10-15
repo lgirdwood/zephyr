@@ -149,6 +149,12 @@ static int xtensa_elf_relocate(struct llext_loader *ldr, struct llext *ext,
 			update_got_entry(got_entry, addr + rel->r_addend);
 		}
 		break;
+	case R_XTENSA_PLT:
+		/*
+		 * Emitted for function addresses in literals of -fPIC code. In
+		 * relocatable objects there is no PLT, so like the linker in a
+		 * non-shared link, resolve it directly to the symbol address.
+		 */
 	case R_XTENSA_32:
 		/* Used for both LOCAL and GLOBAL bindings */
 		update_got_entry(got_entry, read_got_entry(got_entry) + addr);
