@@ -310,6 +310,7 @@ int snprintk(char *str, size_t size, const char *fmt, ...)
 
 	return ret;
 }
+EXPORT_SYMBOL(snprintk);
 
 int vsnprintk(char *str, size_t size, const char *fmt, va_list ap)
 {
@@ -323,5 +324,6 @@ int vsnprintk(char *str, size_t size, const char *fmt, va_list ap)
 
 	return ctx.count;
 }
+EXPORT_SYMBOL(vsnprintk);
 
 #endif
