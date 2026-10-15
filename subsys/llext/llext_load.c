@@ -808,6 +808,42 @@ static int llext_export_symbols(struct llext_loader *ldr, struct llext *ext,
 	return 0;
 }
 
+/*
+ * Run-time address of a symbol defined in one of the extension's sections
+ * (sym->st_shndx must be a valid section index). Returns NULL if that
+ * section has no data.
+ */
+const void *llext_defined_sym_addr(struct llext_loader *ldr, struct llext *ext,
+				   const elf_sym_t *sym, const struct llext_load_param *ldr_parm)
+{
+	elf_shdr_t *shdr = ext->sect_hdrs + sym->st_shndx;
+	uintptr_t section_addr = shdr->sh_addr;
+	const void *base;
+
+	if (ldr_parm->pre_located &&
+	    (!ldr_parm->section_detached || !ldr_parm->section_detached(shdr))) {
+		return (const uint8_t *)sym->st_value +
+		       (ldr->hdr.e_type == ET_REL ? section_addr : 0);
+	}
+
+	base = llext_loaded_sect_ptr(ldr, ext, sym->st_shndx);
+	if (!base) {
+		/* If the section is not mapped, try to peek.
+		 * Be noisy about it, since this is addressing
+		 * data that was missed by llext_map_sections.
+		 */
+		base = llext_peek(ldr, shdr->sh_offset);
+		if (!base) {
+			LOG_ERR("No data for section %d", sym->st_shndx);
+			return NULL;
+		}
+		LOG_DBG("section %d peeked at %p", sym->st_shndx, base);
+	}
+
+	return (const uint8_t *)base + sym->st_value -
+	       (ldr->hdr.e_type == ET_REL ? 0 : section_addr);
+}
+
 static int llext_copy_symbols(struct llext_loader *ldr, struct llext *ext,
 			      const struct llext_load_param *ldr_parm)
 {
@@ -860,34 +896,10 @@ static int llext_copy_symbols(struct llext_loader *ldr, struct llext *ext,
 			__ASSERT(j <= sym_tab->sym_cnt, "Miscalculated symbol number %u\n", j);
 
 			sym_tab->syms[j].name = name;
-
-			elf_shdr_t *shdr = ext->sect_hdrs + shndx;
-			uintptr_t section_addr = shdr->sh_addr;
-
-			if (ldr_parm->pre_located &&
-			    (!ldr_parm->section_detached || !ldr_parm->section_detached(shdr))) {
-				sym_tab->syms[j].addr = (uint8_t *)sym.st_value +
-					(ldr->hdr.e_type == ET_REL ? section_addr : 0);
-			} else {
-				const void *base;
-
-				base = llext_loaded_sect_ptr(ldr, ext, shndx);
-				if (!base) {
-					/* If the section is not mapped, try to peek.
-					 * Be noisy about it, since this is addressing
-					 * data that was missed by llext_map_sections.
-					 */
-					base = llext_peek(ldr, shdr->sh_offset);
-					if (base) {
-						LOG_DBG("section %d peeked at %p", shndx, base);
-					} else {
-						LOG_ERR("No data for section %d", shndx);
-						return -ENOTSUP;
-					}
-				}
-
-				sym_tab->syms[j].addr = (uint8_t *)base + sym.st_value -
-					(ldr->hdr.e_type == ET_REL ? 0 : section_addr);
+			sym_tab->syms[j].addr = (void *)llext_defined_sym_addr(ldr, ext, &sym,
+									       ldr_parm);
+			if (!sym_tab->syms[j].addr) {
+				return -ENOTSUP;
 			}
 
 			LOG_DBG("function symbol %d name %s addr %p",

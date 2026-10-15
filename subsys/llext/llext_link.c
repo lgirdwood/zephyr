@@ -414,9 +414,10 @@ static int llext_link_plt(struct llext_loader *ldr, struct llext *ext, elf_shdr_
 			link_addr = llext_find_sym(NULL,
 				SYM_NAME_OR_SLID(name, sym.st_value));
 
-			if (!link_addr) {
-				/* Next try internal tables */
-				link_addr = llext_find_sym(&ext->sym_tab, name);
+			if (!link_addr && sym.st_shndx != SHN_UNDEF &&
+			    sym.st_shndx < ext->sect_cnt) {
+				/* Defined in this extension, no need to look it up by name */
+				link_addr = llext_defined_sym_addr(ldr, ext, &sym, ldr_parm);
 			}
 
 			if (!link_addr) {
