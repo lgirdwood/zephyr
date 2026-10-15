@@ -430,7 +430,10 @@ static int llext_link_plt(struct llext_loader *ldr, struct llext *ext, elf_shdr_
 				}
 			}
 
-			if (!link_addr) {
+			if (!link_addr && stb == STB_WEAK && sym.st_shndx == SHN_UNDEF) {
+				/* An unresolved undefined weak symbol has the value 0 */
+				LOG_DBG("PLT: weak symbol %s undefined, resolving to 0", name);
+			} else if (!link_addr) {
 				LOG_WRN("PLT: cannot find idx %u name %s", j, name);
 				/* Will fail after reporting all missing symbols */
 				if (!link_err) {
