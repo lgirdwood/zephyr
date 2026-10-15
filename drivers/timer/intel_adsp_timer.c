@@ -12,6 +12,7 @@
 #include <adsp_shim.h>
 #include <adsp_interrupt.h>
 #include <zephyr/irq.h>
+#include <zephyr/llext/symbol.h>
 
 #define DT_DRV_COMPAT intel_adsp_timer
 
@@ -174,6 +175,8 @@ uint32_t sys_clock_cycle_get_32(void)
 {
 	return count32();
 }
+/* k_cycle_get_32() is inline, extensions need this to call it */
+EXPORT_SYMBOL(sys_clock_cycle_get_32);
 
 uint64_t sys_clock_cycle_get_64(void)
 {
