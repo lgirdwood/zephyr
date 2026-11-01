@@ -120,6 +120,8 @@ enum dai_type {
 	DAI_INTEL_UAOL,      /**< Intel UAOL */
 	DAI_AMD_SDW,         /**< AMD SoundWire */
 	DAI_AMD_TDM,         /**< AMD TDM */
+	DAI_ESP32_I2S,       /**< ESP32 I2S */
+	DAI_ESP32_PDM,       /**< ESP32 PDM */
 };
 
 /**
