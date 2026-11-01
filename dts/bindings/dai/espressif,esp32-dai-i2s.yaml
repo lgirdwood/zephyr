@@ -1,0 +1,36 @@
+# Copyright (c) 2026 Espressif Systems / SOF Project
+# SPDX-License-Identifier: Apache-2.0
+
+description: |
+  Espressif ESP32 Digital Audio Interface (DAI) for I2S controller.
+  Supports Master and Slave modes, configurable word lengths, multiple channels/TDM,
+  and integration with ESP32 GDMA.
+
+compatible: "espressif,esp32-dai-i2s"
+
+include: [base.yaml, pinctrl-device.yaml]
+
+properties:
+  reg:
+    required: true
+
+  interrupts:
+    required: true
+
+  dai-index:
+    type: int
+    required: true
+    description: Index of this DAI interface (0 for I2S0, etc.).
+
+  dmas:
+    type: phandle-array
+    description: TX and RX GDMA channels.
+
+  dma-names:
+    type: string-array
+    description: Names of DMA channels ("tx", "rx").
+
+  fifo-depth:
+    type: int
+    default: 32
+    description: Depth of the I2S FIFO in 32-bit words.
