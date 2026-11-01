@@ -82,6 +82,7 @@ static esp_err_t gdma_create_sleep_retention_cb(void *arg)
 #endif
 
 struct dma_esp32_data {
+	struct dma_context ctx;
 	gdma_hal_context_t hal;
 	/* Guards the peripheral IDs the channels select */
 	struct k_spinlock lock;
@@ -146,6 +147,8 @@ struct dma_esp32_channel {
 	esp_dma_desc_t *tail;
 	uint8_t next_slot;
 	uint8_t in_flight;
+	uint16_t ring_tail;
+	uint16_t num_descs;
 #if CONFIG_PM
 	bool pm_lock_held;
 #endif
@@ -423,6 +426,9 @@ static void dma_esp32_cache_flush_data(struct dma_esp32_channel *dma_channel)
 		if (desc->buffer && desc->dw0.size) {
 			sys_cache_data_flush_range(desc->buffer, desc->dw0.size);
 		}
+		if (desc->next == dma_channel->desc_list) {
+			break;
+		}
 		desc = desc->next;
 	}
 }
@@ -482,6 +488,9 @@ static void dma_esp32_cache_prepare_data(struct dma_esp32_channel *dma_channel)
 		if (desc->buffer && desc->dw0.size) {
 			sys_cache_data_flush_and_invd_range(desc->buffer, desc->dw0.size);
 		}
+		if (desc->next == dma_channel->desc_list) {
+			break;
+		}
 		desc = desc->next;
 	}
 }
@@ -493,6 +502,9 @@ static void IRAM_ATTR dma_esp32_cache_invd_data(struct dma_esp32_channel *dma_ch
 	for (int i = 0; i < ARRAY_SIZE(dma_channel->desc_list) && desc; ++i) {
 		if (desc->buffer && desc->dw0.size) {
 			dma_esp32_invd_keep_edges(desc->buffer, desc->dw0.size);
+		}
+		if (desc->next == dma_channel->desc_list) {
+			break;
 		}
 		desc = desc->next;
 	}
@@ -588,6 +600,8 @@ static int dma_esp32_config_descriptor(struct dma_esp32_channel *dma_channel,
 		return -EINVAL;
 	}
 
+	struct dma_block_config *head_block = block;
+	bool completed = false;
 	uint32_t target_address = 0, block_size = 0;
 	esp_dma_desc_t *desc_iter = dma_channel->desc_list;
 
@@ -656,13 +670,21 @@ static int dma_esp32_config_descriptor(struct dma_esp32_channel *dma_channel,
 		block_size -= buffer_size;
 
 		if (!block_size) {
-			if (block->next_block) {
+			if (block->next_block && block->next_block != head_block) {
 				block = block->next_block;
 			} else {
-				desc_iter->next = NULL;
+				if (block->next_block == head_block) {
+					/* Circular buffer: loop back to beginning of descriptor list */
+					desc_iter->next = dma_channel->desc_list;
+				} else {
+					desc_iter->next = NULL;
+				}
 				if (dma_channel->dir == DMA_TX) {
 					desc_iter->dw0.suc_eof = 1;
 				}
+				completed = true;
+				dma_channel->num_descs = i + 1;
+				dma_channel->ring_tail = 0;
 				break;
 			}
 		}
@@ -671,7 +693,7 @@ static int dma_esp32_config_descriptor(struct dma_esp32_channel *dma_channel,
 		desc_iter += 1;
 	}
 
-	if (desc_iter == dma_channel->desc_list + ARRAY_SIZE(dma_channel->desc_list)) {
+	if (!completed) {
 		memset(dma_channel->desc_list, 0, sizeof(dma_channel->desc_list));
 		LOG_ERR("Run out of DMA descriptors. Increase CONFIG_DMA_ESP32_MAX_DESCRIPTOR_NUM");
 		return -EINVAL;
@@ -800,8 +822,9 @@ static int dma_esp32_config_rx(const struct device *dev, struct dma_esp32_channe
 
 	dma_channel->burst_length = config_dma->dest_burst_length;
 
-	for (struct dma_block_config *block = config_dma->head_block; block != NULL;
-	     block = block->next_block) {
+	struct dma_block_config *head = config_dma->head_block;
+	for (struct dma_block_config *block = head; block != NULL;
+	     block = (block->next_block != head) ? block->next_block : NULL) {
 		burst_length =
 			dma_esp32_rx_burst(burst_length, block->dest_address, block->block_size);
 	}
@@ -1097,42 +1120,76 @@ static int IRAM_ATTR dma_esp32_get_status(const struct device *dev, uint32_t cha
 		status->dir = PERIPHERAL_TO_MEMORY;
 		desc = (esp_dma_desc_t *)dma_ll_rx_get_prefetched_desc(data,
 								       dma_channel->channel_id);
-		if (desc == NULL) {
-			/* Not every controller keeps the prefetched descriptor
-			 * readable once the transfer has ended; the AHB
-			 * instance on esp32p4 reports zero there. The
-			 * successful-EOF register still points at the last
-			 * descriptor written back, so use it instead.
-			 *
-			 * That register is a latch and survives a rearm, so
-			 * only take it while the descriptor it names has been
-			 * handed back by the controller.
-			 */
-			desc = (esp_dma_desc_t *)dma_ll_rx_get_suc_eof_desc(
-				data, dma_channel->channel_id);
-
-			if (dma_esp32_desc_in_list(dma_channel, desc) &&
-			    dma_esp32_desc_uncached(desc)->dw0.owner ==
-				    DMA_DESCRIPTOR_BUFFER_OWNER_DMA) {
-				desc = NULL;
+		if (dma_channel->num_descs > 0) {
+			uint32_t num = dma_channel->num_descs;
+			uint16_t head = 0;
+			if (desc >= dma_channel->desc_list && desc < dma_channel->desc_list + num) {
+				head = desc - dma_channel->desc_list;
 			}
-		}
+			uint16_t tail = dma_channel->ring_tail;
+			uint32_t avail_periods = (head >= tail) ? (head - tail) : (head + num - tail);
+			uint32_t period_size = dma_channel->desc_list[0].dw0.size ? dma_channel->desc_list[0].dw0.size : 192;
 
-		if (dma_esp32_desc_in_list(dma_channel, desc)) {
-			esp_dma_desc_t *desc_nc = dma_esp32_desc_uncached(desc);
+			status->pending_length = avail_periods * period_size;
+			status->free = (num - avail_periods) * period_size;
+			status->read_position = tail;
+			status->total_copied = tail * period_size;
+		} else {
+			if (desc == NULL) {
+				/* Not every controller keeps the prefetched descriptor
+				 * readable once the transfer has ended; the AHB
+				 * instance on esp32p4 reports zero there. The
+				 * successful-EOF register still points at the last
+				 * descriptor written back, so use it instead.
+				 *
+				 * That register is a latch and survives a rearm, so
+				 * only take it while the descriptor it names has been
+				 * handed back by the controller.
+				 */
+				desc = (esp_dma_desc_t *)dma_ll_rx_get_suc_eof_desc(
+					data, dma_channel->channel_id);
 
-			status->read_position = desc - dma_channel->desc_list;
-			status->total_copied =
-				desc_nc->dw0.length +
-				dma_channel->desc_list[0].dw0.size * status->read_position;
+				if (dma_esp32_desc_in_list(dma_channel, desc) &&
+				    dma_esp32_desc_uncached(desc)->dw0.owner ==
+					    DMA_DESCRIPTOR_BUFFER_OWNER_DMA) {
+					desc = NULL;
+				}
+			}
+
+			if (dma_esp32_desc_in_list(dma_channel, desc)) {
+				esp_dma_desc_t *desc_nc = dma_esp32_desc_uncached(desc);
+
+				status->read_position = desc - dma_channel->desc_list;
+				status->total_copied =
+					desc_nc->dw0.length +
+					dma_channel->desc_list[0].dw0.size * status->read_position;
+			}
 		}
 	} else if (dma_channel->dir == DMA_TX) {
 		status->busy = !dma_ll_tx_is_fsm_idle(data, dma_channel->channel_id);
 		status->dir = MEMORY_TO_PERIPHERAL;
 		desc = (esp_dma_desc_t *)dma_ll_tx_get_prefetched_desc(data,
 								       dma_channel->channel_id);
-		if (dma_esp32_desc_in_list(dma_channel, desc)) {
-			status->write_position = desc - dma_channel->desc_list;
+		if (dma_channel->num_descs > 0) {
+			uint32_t num = dma_channel->num_descs;
+			uint16_t head = 0;
+			if (desc >= dma_channel->desc_list && desc < dma_channel->desc_list + num) {
+				head = desc - dma_channel->desc_list;
+			}
+			uint16_t tail = dma_channel->ring_tail;
+			uint32_t queued_periods = (tail >= head) ? (tail - head) : (tail + num - head);
+			uint32_t period_size = dma_channel->desc_list[0].dw0.size ? dma_channel->desc_list[0].dw0.size : 192;
+			uint32_t free_periods = (num > (queued_periods + 1)) ? (num - 1 - queued_periods) : 0;
+
+			status->free = free_periods * period_size;
+			status->pending_length = queued_periods * period_size;
+			status->write_position = tail;
+			status->read_position = head;
+			status->total_copied = tail * period_size;
+		} else {
+			if (dma_esp32_desc_in_list(dma_channel, desc)) {
+				status->write_position = desc - dma_channel->desc_list;
+			}
 		}
 	}
 
@@ -1237,6 +1294,25 @@ static int dma_esp32_reload(const struct device *dev, uint32_t channel, uint32_t
 
 	dma_channel = &config->dma_channel[channel];
 	desc_iter = dma_channel->desc_list;
+
+	/* In-place circular buffer reload (called periodically from SOF dai_common_copy with src=0, dst=0) */
+	if (src == 0 && dst == 0) {
+		uint32_t num = dma_channel->num_descs ? dma_channel->num_descs : CONFIG_DMA_ESP32_MAX_DESCRIPTOR_NUM;
+		uint32_t period_size = dma_channel->desc_list[0].dw0.size ? dma_channel->desc_list[0].dw0.size : 192;
+		uint32_t periods = size / period_size;
+		if (dma_channel->dir == DMA_RX && periods > 0) {
+			for (uint32_t p = 0; p < periods; p++) {
+				uint32_t idx = (dma_channel->ring_tail + p) % num;
+				dma_channel->desc_list[idx].dw0.owner = DMA_DESCRIPTOR_BUFFER_OWNER_DMA;
+				dma_channel->desc_list[idx].dw0.size = period_size;
+				dma_channel->desc_list[idx].dw0.length = 0;
+				sys_cache_data_flush_range(&dma_channel->desc_list[idx], sizeof(esp_dma_desc_t));
+			}
+			gdma_hal_append(&data->hal, dma_channel->channel_id, GDMA_CHANNEL_DIRECTION_RX);
+		}
+		dma_channel->ring_tail = (dma_channel->ring_tail + periods) % num;
+		return 0;
+	}
 
 	if (size == 0) {
 		LOG_ERR("Zero-length DMA block is not allowed for a reload");
@@ -1381,6 +1457,8 @@ static int dma_esp32_init(const struct device *dev)
 		dma_channel->dir = DMA_UNCONFIGURED;
 		dma_channel->periph_id = ESP_GDMA_TRIG_PERIPH_INVALID;
 		dma_channel->m2m_periph_id = ESP_GDMA_TRIG_PERIPH_INVALID;
+		dma_channel->ring_tail = 0;
+		dma_channel->num_descs = 0;
 		memset(dma_channel->desc_list, 0, sizeof(dma_channel->desc_list));
 	}
 
@@ -1451,12 +1529,37 @@ static int dma_esp32_init(const struct device *dev)
 	return 0;
 }
 
+static int dma_esp32_get_attribute(const struct device *dev, uint32_t type, uint32_t *value)
+{
+	struct dma_esp32_config *config = (struct dma_esp32_config *)dev->config;
+
+	switch (type) {
+	case DMA_ATTR_BUFFER_ADDRESS_ALIGNMENT:
+		*value = config->sram_alignment ? config->sram_alignment : 64;
+		break;
+	case DMA_ATTR_BUFFER_SIZE_ALIGNMENT:
+		*value = 4;
+		break;
+	case DMA_ATTR_COPY_ALIGNMENT:
+		*value = 4;
+		break;
+	case DMA_ATTR_MAX_BLOCK_COUNT:
+		*value = CONFIG_DMA_ESP32_MAX_DESCRIPTOR_NUM;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static DEVICE_API(dma, dma_esp32_api) = {
 	.config = dma_esp32_config,
 	.start = dma_esp32_start,
 	.stop = dma_esp32_stop,
 	.get_status = dma_esp32_get_status,
 	.reload = dma_esp32_reload,
+	.get_attribute = dma_esp32_get_attribute,
 };
 
 #if DMA_ESP32_SHARED_IRQ
@@ -1556,7 +1659,13 @@ static void *irq_handlers[] = {
 		.clock_subsys =                                              \
 			(void *)DT_INST_CLOCKS_CELL(idx, offset),            \
 	};                                                                   \
+	ATOMIC_DEFINE(dma_atomic_##idx, DT_INST_PROP(idx, dma_channels));    \
 	static struct dma_esp32_data dma_data_##idx = {                      \
+		.ctx = {                                                     \
+			.magic = DMA_MAGIC,                                  \
+			.atomic = dma_atomic_##idx,                          \
+			.dma_channels = DT_INST_PROP(idx, dma_channels),     \
+		},                                                           \
 		.hal = {                                                     \
 			.dev = (void *)DT_INST_REG_ADDR(idx),                \
 		},                                                           \
