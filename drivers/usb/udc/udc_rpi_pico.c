@@ -274,8 +274,12 @@ static int rpi_pico_prep_rx(const struct device *dev,
 	lock_key = irq_lock();
 
 	buf_ctrl = cfg->mps;
-	buf_ctrl |= ep_data->next_pid ? USB_BUF_CTRL_DATA1_PID : USB_BUF_CTRL_DATA0_PID;
-	ep_data->next_pid ^= 1U;
+	if ((cfg->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_ISO) {
+		buf_ctrl |= USB_BUF_CTRL_DATA0_PID;
+	} else {
+		buf_ctrl |= ep_data->next_pid ? USB_BUF_CTRL_DATA1_PID : USB_BUF_CTRL_DATA0_PID;
+		ep_data->next_pid ^= 1U;
+	}
 
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl);
 	/*
@@ -315,9 +319,13 @@ static int rpi_pico_prep_tx(const struct device *dev,
 		cfg->addr, len, ep_data->next_pid);
 
 	buf_ctrl = len;
-	buf_ctrl |= ep_data->next_pid ? USB_BUF_CTRL_DATA1_PID : USB_BUF_CTRL_DATA0_PID;
+	if ((cfg->attributes & USB_EP_TRANSFER_TYPE_MASK) == USB_EP_TYPE_ISO) {
+		buf_ctrl |= USB_BUF_CTRL_DATA0_PID;
+	} else {
+		buf_ctrl |= ep_data->next_pid ? USB_BUF_CTRL_DATA1_PID : USB_BUF_CTRL_DATA0_PID;
+		ep_data->next_pid ^= 1U;
+	}
 	buf_ctrl |= USB_BUF_CTRL_FULL;
-	ep_data->next_pid ^= 1U;
 
 	write_buf_ctrl_reg(dev, cfg->addr, buf_ctrl);
 	/*
@@ -543,7 +551,8 @@ static void rpi_pico_handle_buff_status_out(const struct device *dev, const uint
 	void *dst = net_buf_add(buf, copy_len);
 	dpram_memcpy_from(dst, ep_data->buf, copy_len);
 
-	if (net_buf_tailroom(buf) && len == udc_mps_ep_size(ep_cfg)) {
+	if ((ep_cfg->attributes & USB_EP_TRANSFER_TYPE_MASK) != USB_EP_TYPE_ISO &&
+	    net_buf_tailroom(buf) && len == udc_mps_ep_size(ep_cfg)) {
 		__unused int err;
 
 		err = rpi_pico_prep_rx(dev, buf, ep_cfg);
