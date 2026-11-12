@@ -1039,6 +1039,33 @@
 			#dma-cells = <0>;
 		};
 
+		spdif: dai@40380000 {
+			compatible = "nxp,dai-spdif";
+			reg = <0x40380000 0x1000>;
+			interrupts = <60 0>;
+			clocks = <&ccm IMX_CCM_SPDIF0_CLK 0x7c 14>;
+			clock-names = "bus";
+			dai-index = <0>;
+			dmas = <&edma0 2 86>, <&edma0 3 85>;
+			dma-names = "tx", "rx";
+			status = "disabled";
+		};
+
+		sai1_dai: dai@40384000 {
+			compatible = "nxp,dai-sai";
+			reg = <0x40384000 0x4000>;
+			interrupts = <56 0>;
+			clocks = <&ccm IMX_CCM_SAI1_CLK 0x7c 18>;
+			clock-names = "bus";
+			dai-index = <1>;
+			dmas = <&edma0 0 20>, <&edma0 1 19>;
+			dma-names = "tx", "rx";
+			tx-fifo-watermark = <16>;
+			rx-fifo-watermark = <16>;
+			fifo-depth = <32>;
+			status = "disabled";
+		};
+
 		sai1: sai@40384000 {
 			compatible = "nxp,mcux-i2s";
 			#address-cells = <1>;

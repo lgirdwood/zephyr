@@ -509,4 +509,32 @@
 			nxp,speed = "50-mhz";
 		};
 	};
+
+	/* SAI1 TX_DATA0, TX_DATA2, RX_DATA0, RX_SYNC, RX_BCLK, MCLK on Teensy-Pins 7/9/8/20/21/23 */
+	pinmux_sai1: pinmux_sai1 {
+		group0 {
+			pinmux = <&iomuxc_gpio_b1_01_sai1_tx_data0>,
+				 <&iomuxc_gpio_b0_11_sai1_tx_data2>,
+				 <&iomuxc_gpio_b1_00_sai1_rx_data0>,
+				 <&iomuxc_gpio_ad_b1_10_sai1_rx_sync>,
+				 <&iomuxc_gpio_ad_b1_11_sai1_rx_bclk>,
+				 <&iomuxc_gpio_ad_b1_09_sai1_mclk>;
+			drive-strength = "r0-6";
+			slew-rate = "slow";
+			nxp,speed = "100-mhz";
+			input-enable;
+		};
+	};
+
+	/* SPDIF OUT, IN on Teensy-Pins 14/15 */
+	pinmux_spdif: pinmux_spdif {
+		group0 {
+			pinmux = <&iomuxc_gpio_ad_b1_02_spdif_out>,
+				 <&iomuxc_gpio_ad_b1_03_spdif_in>;
+			drive-strength = "r0-6";
+			slew-rate = "fast";
+			nxp,speed = "100-mhz";
+			input-enable;
+		};
+	};
 };

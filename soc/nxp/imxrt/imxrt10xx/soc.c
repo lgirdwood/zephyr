@@ -292,6 +292,36 @@ __weak void clock_init(void)
 	CLOCK_SetMux(kCLOCK_TraceMux, 0);
 #endif
 
+#if defined(CONFIG_DAI_NXP_SAI) || defined(CONFIG_DAI_NXP_SPDIF)
+	/*
+	 * Configure Audio PLL (PLL4) to 688.128 MHz, an exact integer multiple
+	 * of both SAI1 MCLK (12.288 MHz = 688.128 MHz / (4 * 14)) and S/PDIF
+	 * transceiver clock (24.576 MHz = 688.128 MHz / (4 * 7)) for 48 kHz:
+	 *   24 MHz * (28 + 6720 / 10000) / 1 = 688.128 MHz
+	 */
+	{
+		const clock_audio_pll_config_t audio_pll_cfg = {
+			.loopDivider = 28,
+			.postDivider = 1,
+			.numerator = 6720,
+			.denominator = 10000,
+			.src = 0,
+		};
+
+		CLOCK_InitAudioPll(&audio_pll_cfg);
+	}
+#ifdef CONFIG_DAI_NXP_SAI
+	CLOCK_SetMux(kCLOCK_Sai1Mux, 2);
+	CLOCK_SetDiv(kCLOCK_Sai1PreDiv, 3);
+	CLOCK_SetDiv(kCLOCK_Sai1Div, 13);
+#endif
+#ifdef CONFIG_DAI_NXP_SPDIF
+	CLOCK_SetMux(kCLOCK_SpdifMux, 0);
+	CLOCK_SetDiv(kCLOCK_Spdif0PreDiv, 3);
+	CLOCK_SetDiv(kCLOCK_Spdif0Div, 6);
+#endif
+#endif
+
 	/* Keep the system clock running so SYSTICK can wake up the system from
 	 * wfi.
 	 */

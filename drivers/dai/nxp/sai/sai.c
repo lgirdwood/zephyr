@@ -402,6 +402,17 @@ static int sai_config_set(const struct device *dev,
 				      bespoke->tdm_slots);
 	}
 
+#if defined(CONFIG_SOC_SERIES_IMXRT10XX) && defined(I2S1) && \
+	defined(IOMUXC_GPR_GPR1_SAI1_MCLK_DIR_MASK)
+	if (data->regmap == (uint32_t)I2S1) {
+		if (tx_config->masterSlave == kSAI_Master) {
+			IOMUXC_GPR->GPR1 |= IOMUXC_GPR_GPR1_SAI1_MCLK_DIR_MASK;
+		} else {
+			IOMUXC_GPR->GPR1 &= ~IOMUXC_GPR_GPR1_SAI1_MCLK_DIR_MASK;
+		}
+	}
+#endif
+
 #ifdef CONFIG_SAI_HAS_MCLK_CONFIG_OPTION
 	ret = sai_mclk_config(dev, tx_config->bitClock.bclkSource, bespoke);
 	if (ret < 0) {

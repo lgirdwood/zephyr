@@ -177,6 +177,24 @@ zephyr_udc0: &usb1 {
 	pinctrl-names = "default", "slow", "med", "fast";
 };
 
+&sai1 {
+	pinctrl-0 = <&pinmux_sai1>;
+	pinctrl-names = "default";
+};
+
+&sai1_dai {
+	pinctrl-0 = <&pinmux_sai1>;
+	pinctrl-names = "default";
+	tx-sync-mode = <1>;
+	rx-sync-mode = <0>;
+	tx-dataline = <2>;
+};
+
+&spdif {
+	pinctrl-0 = <&pinmux_spdif>;
+	pinctrl-names = "default";
+};
+
 &systick {
 	status = "okay";
 };
