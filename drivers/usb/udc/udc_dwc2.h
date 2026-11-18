@@ -102,9 +102,13 @@ struct udc_dwc2_data {
 	uint16_t iso_in_rearm;
 	uint16_t iso_out_rearm;
 	uint16_t ep_out_disable;
+	uint16_t ep_in_disable;
 	uint16_t ep_out_stall;
 	uint16_t pending_tx_flush;
 	uint16_t sof_num;
+	uint16_t dfifodepth;
+	uint16_t rxfifo_depth;
+	uint16_t max_txfifo_depth[16];
 	/* Configuration flags */
 	unsigned int dynfifosizing : 1;
 	unsigned int bufferdma : 1;

@@ -23,6 +23,9 @@
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 #include <hal/usb_serial_jtag_ll.h>
 #endif
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+#include <soc/usb_serial_jtag_reg.h>
+#endif
 
 struct phy_context_t {
 	usb_phy_target_t target;
@@ -67,6 +70,10 @@ static inline int esp32_usb_otg_init(const struct device *dev,
 		return ret;
 	}
 
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+	CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+#endif
+
 	/* pinout config to work in USB_OTG_MODE_DEVICE */
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	esp_rom_gpio_connect_in_signal(GPIO_MATRIX_CONST_ONE_INPUT, USB_OTG11_IDDIG_PAD_IN_IDX,
@@ -105,6 +112,11 @@ static inline int esp32_usb_otg_enable_clk(struct phy_context_t *phy_ctx)
 {
 	usb_wrap_hal_init(&phy_ctx->wrap_hal);
 
+#if defined(CONFIG_SOC_SERIES_ESP32P4)
+	usb_wrap_ll_phy_select(phy_ctx->wrap_hal.dev, 0);
+	usb_wrap_ll_phy_set_defaults(phy_ctx->wrap_hal.dev);
+#endif
+
 #if USB_WRAP_LL_EXT_PHY_SUPPORTED
 	usb_wrap_hal_phy_set_external(&phy_ctx->wrap_hal, (phy_ctx->target == USB_PHY_TARGET_EXT));
 #endif
@@ -122,6 +134,10 @@ static inline int esp32_usb_otg_enable_phy(struct phy_context_t *phy_ctx, bool e
 		 * otg-fs controller while the device stack is enabled.
 		 */
 		usb_serial_jtag_ll_phy_select(1);
+		usb_wrap_ll_phy_select(phy_ctx->wrap_hal.dev, 0);
+#endif
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+		CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
 #endif
 		usb_wrap_ll_phy_enable_pad(phy_ctx->wrap_hal.dev, true);
 		LOG_DBG("PHY enabled");
@@ -130,6 +146,9 @@ static inline int esp32_usb_otg_enable_phy(struct phy_context_t *phy_ctx, bool e
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 		/* Return the FSLS phy pads to usb-serial-jtag */
 		usb_serial_jtag_ll_phy_select(0);
+#endif
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+		SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
 #endif
 		LOG_DBG("PHY disabled");
 	}
