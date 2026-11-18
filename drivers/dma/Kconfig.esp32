@@ -12,7 +12,7 @@ if DMA_ESP32
 
 config DMA_ESP32_MAX_DESCRIPTOR_NUM
 	int "Maximal number of available DMA descriptors"
-	default 16
+	default 64
 	help
 	  Reserves memory for a maximal number of descriptors
 

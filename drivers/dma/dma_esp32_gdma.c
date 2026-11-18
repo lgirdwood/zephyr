@@ -676,11 +676,12 @@ static int dma_esp32_config_descriptor(struct dma_esp32_channel *dma_channel,
 				if (block->next_block == head_block) {
 					/* Circular buffer: loop back to beginning of descriptor list */
 					desc_iter->next = dma_channel->desc_list;
+					desc_iter->dw0.suc_eof = 0;
 				} else {
 					desc_iter->next = NULL;
-				}
-				if (dma_channel->dir == DMA_TX) {
-					desc_iter->dw0.suc_eof = 1;
+					if (dma_channel->dir == DMA_TX) {
+						desc_iter->dw0.suc_eof = 1;
+					}
 				}
 				completed = true;
 				dma_channel->num_descs = i + 1;

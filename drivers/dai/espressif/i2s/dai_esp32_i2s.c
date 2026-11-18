@@ -19,9 +19,14 @@
 #include <soc/pcr_struct.h>
 #include <soc/io_mux_reg.h>
 #include <soc/gpio_periph.h>
+#elif defined(CONFIG_SOC_SERIES_ESP32S3)
+#include <soc/system_struct.h>
+#include <soc/io_mux_reg.h>
+#include <soc/gpio_periph.h>
 #endif
 #include <soc/gpio_struct.h>
 #include <soc/gpio_sig_map.h>
+#include <hal/gpio_ll.h>
 #include <hal/i2s_ll.h>
 #include <esp_rom_gpio.h>
 #include <zephyr/drivers/dma/dma_esp32.h>
@@ -110,6 +115,12 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	I2S0.tx_conf.tx_slave_mod = data->is_slave ? 1 : 0;
 	I2S0.rx_conf.rx_slave_mod = data->is_slave ? 1 : 0;
 
+	/* Reset TX and RX units */
+	I2S0.tx_conf.tx_reset = 1;
+	I2S0.tx_conf.tx_reset = 0;
+	I2S0.rx_conf.rx_reset = 1;
+	I2S0.rx_conf.rx_reset = 0;
+
 	/* Configure TDM / Philips I2S format */
 	I2S0.tx_conf.tx_pdm_en = 0;
 	I2S0.tx_conf.tx_tdm_en = 1;
@@ -155,7 +166,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	/* Philips standard: 1 bit MSB shift, WS low for left channel, left align */
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.tx_conf.tx_msb_shift = 1;
-#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+#elif defined(CONFIG_SOC_SERIES_ESP32C6) || defined(CONFIG_SOC_SERIES_ESP32S3)
 	I2S0.tx_conf1.tx_msb_shift = 1;
 #endif
 	I2S0.tx_conf.tx_ws_idle_pol = 0;
@@ -163,11 +174,15 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	I2S0.tx_conf.tx_big_endian = 0;
 	I2S0.tx_conf.tx_bit_order = 0;
 	I2S0.tx_conf.tx_chan_equal = 0;
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+	I2S0.conf_single_data = 0;
+#else
 	I2S0.conf_single_data.val = 0;
+#endif
 
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.rx_conf.rx_msb_shift = 1;
-#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+#elif defined(CONFIG_SOC_SERIES_ESP32C6) || defined(CONFIG_SOC_SERIES_ESP32S3)
 	I2S0.rx_conf1.rx_msb_shift = 1;
 #endif
 	I2S0.rx_conf.rx_ws_idle_pol = 0;
@@ -176,7 +191,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	I2S0.rx_conf.rx_bit_order = 0;
 
 	/* Clock Generation:
-	 * Enable APB and peripheral clocks in HP_SYS_CLKRST or PCR */
+	 * Enable APB and peripheral clocks in HP_SYS_CLKRST, PCR, or SYSTEM */
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	HP_SYS_CLKRST.soc_clk_ctrl2.reg_i2s0_apb_clk_en = 1;
 	LP_AON_CLKRST.hp_clk_ctrl.hp_pad_i2s0_mclk_en = 1;
@@ -192,6 +207,14 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 	PCR.i2s_tx_clkm_conf.i2s_tx_clkm_en = 1;
 	PCR.i2s_rx_clkm_conf.i2s_rx_clkm_sel = 0; /* XTAL 40M */
 	PCR.i2s_rx_clkm_conf.i2s_rx_clkm_en = 1;
+#elif defined(CONFIG_SOC_SERIES_ESP32S3)
+	SYSTEM.perip_clk_en0.i2s0_clk_en = 1;
+	SYSTEM.perip_rst_en0.i2s0_rst = 0;
+	I2S0.tx_clkm_conf.tx_clk_sel = 0; /* XTAL 40M */
+	I2S0.tx_clkm_conf.tx_clk_active = 1;
+	I2S0.tx_clkm_conf.clk_en = 1;
+	I2S0.rx_clkm_conf.rx_clk_sel = 0; /* XTAL 40M */
+	I2S0.rx_clkm_conf.rx_clk_active = 1;
 #endif
 
 	slot_bits = (data->word_size > 16) ? 32 : 16;
@@ -233,7 +256,7 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.tx_conf.tx_bck_div_num = bclk_div - 1;
 	I2S0.rx_conf.rx_bck_div_num = bclk_div - 1;
-#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+#elif defined(CONFIG_SOC_SERIES_ESP32C6) || defined(CONFIG_SOC_SERIES_ESP32S3)
 	I2S0.tx_conf1.tx_bck_div_num = bclk_div - 1;
 	I2S0.rx_conf1.rx_bck_div_num = bclk_div - 1;
 #endif
@@ -294,6 +317,37 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		GPIO.func_out_sel_cfg[20].out_sel = I2SO_SD_OUT_IDX;
 
 		LOG_INF("DAI I2S set to SLAVE mode on ESP32-C6 (BCLK:G18, WS:G19, DIN:G21, DOUT:G20)");
+#elif defined(CONFIG_SOC_SERIES_ESP32S3)
+		/* ESP32-S3 Slave GPIO Matrix:
+		 * BCLK In: GPIO 18 (D9)  -> I2S0I_BCK_IN_IDX (26) & I2S0O_BCK_IN_IDX (22)
+		 * WS In:   GPIO 21 (D10) -> I2S0I_WS_IN_IDX (27) & I2S0O_WS_IN_IDX (24)
+		 * DIN In:  GPIO 8  (D5)  -> I2S0I_SD_IN_IDX (25)
+		 * DOUT Out:GPIO 7  (D4)  <- I2S0O_SD_OUT_IDX (25)
+		 */
+		const uint8_t s3_pins[] = {18, 21, 7, 8};
+		for (int i = 0; i < 4; i++) {
+			uint8_t p = s3_pins[i];
+			GPIO.func_out_sel_cfg[p].func_sel = SIG_GPIO_OUT_IDX;
+			GPIO.func_out_sel_cfg[p].oen_sel = 1;
+			GPIO.func_out_sel_cfg[p].oen_inv_sel = 0;
+			GPIO.pin[p].pad_driver = 0;
+			esp_rom_gpio_pad_unhold(p);
+			esp_rom_gpio_pad_select_gpio(p);
+			PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[p]);
+			esp_rom_gpio_pad_set_drv(p, 3);
+		}
+		GPIO.enable_w1tc = (1 << 18) | (1 << 21) | (1 << 8);
+		GPIO.enable_w1ts = (1 << 7);
+
+		esp_rom_gpio_connect_in_signal(18, I2S0I_BCK_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(18, I2S0O_BCK_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(21, I2S0I_WS_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(21, I2S0O_WS_IN_IDX, false);
+		esp_rom_gpio_connect_in_signal(8, I2S0I_SD_IN_IDX, false);
+		esp_rom_gpio_connect_out_signal(7, I2S0O_SD_OUT_IDX, false, false);
+		GPIO.func_out_sel_cfg[7].func_sel = I2S0O_SD_OUT_IDX;
+
+		LOG_INF("DAI I2S set to SLAVE mode on ESP32-S3 (BCLK:G18/D9, WS:G21/D10, DIN:G8/D5, DOUT:G7/D4)");
 #else
 		/* Slave GPIO Matrix:
 		 * BCLK In: GPIO 21 (Pin 11) -> I2S0_I_BCK_PAD_IN_IDX (29) & I2S0_O_BCK_PAD_IN_IDX (25)
@@ -423,6 +477,48 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		GPIO.enable_w1tc.val = (1 << 21);
 
 		LOG_INF("DAI I2S set to MASTER mode on ESP32-C6 (BCLK:G18, WS:G19, DOUT:G20, DIN:G21)");
+#elif defined(CONFIG_SOC_SERIES_ESP32S3)
+		/* ESP32-S3 Master GPIO Matrix:
+		 * BCLK Out: GPIO 18 (D9)  <- I2S0O_BCK_OUT_IDX (22) & connects internal I2S0I_BCK_IN_IDX (26)
+		 * WS Out:   GPIO 21 (D10) <- I2S0O_WS_OUT_IDX (24) & connects internal I2S0I_WS_IN_IDX (27)
+		 * DOUT Out: GPIO 7  (D4)  <- I2S0O_SD_OUT_IDX (25)
+		 * DIN In:   GPIO 8  (D5)  -> I2S0I_SD_IN_IDX (25)
+		 */
+		const uint8_t s3_pins[] = {18, 21, 7, 8};
+		for (int i = 0; i < 4; i++) {
+			uint8_t p = s3_pins[i];
+			GPIO.func_out_sel_cfg[p].func_sel = SIG_GPIO_OUT_IDX;
+			GPIO.func_out_sel_cfg[p].oen_sel = 1;
+			GPIO.func_out_sel_cfg[p].oen_inv_sel = 0;
+			GPIO.pin[p].pad_driver = 0;
+			esp_rom_gpio_pad_unhold(p);
+			esp_rom_gpio_pad_select_gpio(p);
+			PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[p]);
+			esp_rom_gpio_pad_set_drv(p, 3);
+		}
+
+		I2S0.tx_conf.tx_slave_mod = 0;
+		I2S0.rx_conf.rx_slave_mod = 0;
+		I2S0.tx_conf.sig_loopback = 0;
+
+		esp_rom_gpio_connect_out_signal(18, I2S0O_BCK_OUT_IDX, false, false);
+		esp_rom_gpio_connect_in_signal(18, I2S0I_BCK_IN_IDX, false);
+		GPIO.func_out_sel_cfg[18].func_sel = I2S0O_BCK_OUT_IDX;
+
+		esp_rom_gpio_connect_out_signal(21, I2S0O_WS_OUT_IDX, false, false);
+		esp_rom_gpio_connect_in_signal(21, I2S0I_WS_IN_IDX, false);
+		GPIO.func_out_sel_cfg[21].func_sel = I2S0O_WS_OUT_IDX;
+
+		esp_rom_gpio_connect_out_signal(7, I2S0O_SD_OUT_IDX, false, false);
+		GPIO.func_out_sel_cfg[7].func_sel = I2S0O_SD_OUT_IDX;
+
+		esp_rom_gpio_connect_in_signal(8, I2S0I_SD_IN_IDX, false);
+		GPIO.func_out_sel_cfg[8].func_sel = SIG_GPIO_OUT_IDX;
+
+		GPIO.enable_w1ts = (1 << 18) | (1 << 21) | (1 << 7);
+		GPIO.enable_w1tc = (1 << 8);
+
+		LOG_INF("DAI I2S set to MASTER mode on ESP32-S3 (BCLK:G18/D9, WS:G21/D10, DOUT:G7/D4, DIN:G8/D5)");
 #else
 		/* Master Mode: Drive BCLK (GPIO 21), WS (GPIO 22), DOUT (both GPIO 20 and GPIO 23), DIN (GPIO 23/20) */
 		uint8_t mac[6] = {0};
@@ -496,13 +592,8 @@ static int dai_esp32_i2s_config_set(const struct device *dev,
 		esp_rom_gpio_pad_set_drv(23, 3);
 #endif
 
-#if defined(CONFIG_SOC_SERIES_ESP32P4)
-		/* Start master clock generator */
-		I2S0.tx_conf.tx_start = 1;
-#else
-		/* Hold master clock idle until playback trigger starts */
+		/* Initialize master clock generator (starts when stream triggers) */
 		I2S0.tx_conf.tx_start = 0;
-#endif
 
 		LOG_INF("DAI I2S set to MASTER mode (XTAL 40M: N=%u,x=%u,y=%u,z=%u,yn1=%u, bclk_div=%u, BCLK=%u Hz, WS=%u Hz)",
 			div_int, div_x, div_y, div_z, div_yn1, bclk_div, bclk, data->sample_rate);
@@ -568,8 +659,10 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 		break;
 	case DAI_TRIGGER_START:
 		if (dir == DAI_DIR_TX || dir == DAI_DIR_BOTH) {
-			I2S0.tx_conf.tx_reset = 1;
-			I2S0.tx_conf.tx_reset = 0;
+			if (!I2S0.tx_conf.tx_start) {
+				I2S0.tx_conf.tx_reset = 1;
+				I2S0.tx_conf.tx_reset = 0;
+			}
 			I2S0.tx_conf.tx_fifo_reset = 1;
 			I2S0.tx_conf.tx_fifo_reset = 0;
 			I2S0.tx_conf.tx_update = 1;
@@ -577,6 +670,29 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			while (I2S0.tx_conf.tx_update && --timeout_tx > 0) {
 				k_busy_wait(1);
 			}
+
+			if (data->is_slave) {
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+				const int ws_pin = 21;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+				const int ws_pin = 19;
+#elif defined(CONFIG_SOC_SERIES_ESP32P4)
+				const int ws_pin = 22;
+#else
+				const int ws_pin = -1;
+#endif
+				if (ws_pin >= 0) {
+					int t = 10000;
+					while (!gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+					}
+					if (t > 0) {
+						t = 10000;
+						while (gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+						}
+					}
+				}
+			}
+
 			I2S0.tx_conf.tx_start = 1;
 			data->tx_state = DAI_STATE_RUNNING;
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
@@ -597,8 +713,10 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 #endif
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
-			I2S0.rx_conf.rx_reset = 1;
-			I2S0.rx_conf.rx_reset = 0;
+			if (!I2S0.rx_conf.rx_start) {
+				I2S0.rx_conf.rx_reset = 1;
+				I2S0.rx_conf.rx_reset = 0;
+			}
 			I2S0.rx_conf.rx_fifo_reset = 1;
 			I2S0.rx_conf.rx_fifo_reset = 0;
 			I2S0.rx_conf.rx_update = 1;
@@ -606,6 +724,47 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			while (I2S0.rx_conf.rx_update && --timeout_rx > 0) {
 				k_busy_wait(1);
 			}
+
+			if (data->is_slave) {
+				/* In slave mode with external continuous BCLK/WS,
+				 * synchronize the RX start to the falling edge of WS (1 -> 0 transition).
+				 * In Philips I2S (rx_ws_idle_pol = 0), WS=0 indicates Left channel
+				 * and WS=1 indicates Right channel. Asserting rx_start immediately
+				 * on the falling edge ensures Slot 0 receives Left channel first,
+				 * eliminating the 1-slot channel swap ambiguity.
+				 *
+				 * If the clock is not running yet, the timeout expires cleanly
+				 * and rx_start is asserted.
+				 */
+#if defined(CONFIG_SOC_SERIES_ESP32S3)
+				const int ws_pin = 21;
+#elif defined(CONFIG_SOC_SERIES_ESP32C6)
+				const int ws_pin = 19;
+#elif defined(CONFIG_SOC_SERIES_ESP32P4)
+				const int ws_pin = 22;
+#else
+				const int ws_pin = -1;
+#endif
+				if (ws_pin >= 0) {
+					/* Step 1: Wait for WS to be 1 (Right channel) */
+					int t = 10000;
+					while (!gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+					}
+					/* Step 2: Wait for WS falling edge to 0 (Left channel start) */
+					if (t > 0) {
+						t = 10000;
+						while (gpio_ll_get_level(&GPIO, ws_pin) && --t > 0) {
+						}
+					}
+				}
+			} else {
+				/* In master mode, start TX clock if not already running so BCLK/WS are driven */
+				if (!I2S0.tx_conf.tx_start) {
+					I2S0.tx_conf.tx_start = 1;
+					I2S0.tx_conf.tx_update = 1;
+				}
+			}
+
 			I2S0.rx_conf.rx_start = 1;
 			data->rx_state = DAI_STATE_RUNNING;
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
@@ -637,21 +796,21 @@ static int dai_esp32_i2s_trigger(const struct device *dev,
 			LOG_INF("[DAI STOP] bck_cnt=%u, tx_start=%u",
 				(unsigned int)I2S0.bck_cnt.tx_bck_cnt,
 				(unsigned int)I2S0.tx_conf.tx_start);
-			if (data->is_slave) {
-				I2S0.tx_conf.tx_start = 0;
-				I2S0.tx_conf.tx_update = 1;
-			}
 #else
 			LOG_INF("[DAI STOP] tx_start=%u",
 				(unsigned int)I2S0.tx_conf.tx_start);
+#endif
 			I2S0.tx_conf.tx_start = 0;
 			I2S0.tx_conf.tx_update = 1;
-#endif
 			data->tx_state = DAI_STATE_READY;
 		}
 		if (dir == DAI_DIR_RX || dir == DAI_DIR_BOTH) {
 			I2S0.rx_conf.rx_start = 0;
 			I2S0.rx_conf.rx_update = 1;
+			if (!data->is_slave && data->tx_state != DAI_STATE_RUNNING) {
+				I2S0.tx_conf.tx_start = 0;
+				I2S0.tx_conf.tx_update = 1;
+			}
 			data->rx_state = DAI_STATE_READY;
 		}
 		break;
@@ -705,6 +864,9 @@ static int dai_esp32_i2s_init(const struct device *dev)
 #elif defined(CONFIG_SOC_SERIES_ESP32C6)
 	PCR.i2s_conf.i2s_clk_en = 1;
 	PCR.i2s_conf.i2s_rst_en = 0;
+#elif defined(CONFIG_SOC_SERIES_ESP32S3)
+	SYSTEM.perip_clk_en0.i2s0_clk_en = 1;
+	SYSTEM.perip_rst_en0.i2s0_rst = 0;
 #endif
 #if defined(CONFIG_SOC_SERIES_ESP32P4)
 	I2S0.clk_gate.clk_en = 1;

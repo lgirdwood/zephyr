@@ -437,6 +437,8 @@
 			interrupts = <I2S0_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
 			interrupt-parent = <&intc>;
 			clocks = <&clock ESP32_I2S0_MODULE>;
+			dmas = <&dma 0>, <&dma 1>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 
@@ -449,6 +451,8 @@
 			interrupts = <I2S1_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
 			interrupt-parent = <&intc>;
 			clocks = <&clock ESP32_I2S1_MODULE>;
+			dmas = <&dma 2>, <&dma 3>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 
@@ -461,6 +465,8 @@
 			interrupts = <I2S2_INTR_SOURCE IRQ_DEFAULT_PRIORITY 0>;
 			interrupt-parent = <&intc>;
 			clocks = <&clock ESP32_I2S2_MODULE>;
+			dmas = <&dma 4>, <&dma 5>;
+			dma-names = "rx", "tx";
 			status = "disabled";
 		};
 

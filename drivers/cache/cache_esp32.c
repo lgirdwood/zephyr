@@ -45,6 +45,10 @@ int cache_data_flush_range(void *addr, size_t size)
 {
 	esp_err_t ret;
 
+	if (addr == NULL || size == 0) {
+		return 0;
+	}
+
 	ret = esp_cache_msync(addr, size,
 			      ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
 
@@ -54,6 +58,11 @@ int cache_data_flush_range(void *addr, size_t size)
 int cache_data_invd_range(void *addr, size_t size)
 {
 	esp_err_t ret;
+
+	if (addr == NULL || size == 0) {
+		return 0;
+	}
+
 	size_t line = cache_line_size(addr);
 	uintptr_t aligned_addr = (uintptr_t)addr & ~(line - 1);
 	size_t aligned_size = (((uintptr_t)addr + size + line - 1) & ~(line - 1)) - aligned_addr;
@@ -66,6 +75,10 @@ int cache_data_invd_range(void *addr, size_t size)
 int cache_data_flush_and_invd_range(void *addr, size_t size)
 {
 	esp_err_t ret;
+
+	if (addr == NULL || size == 0) {
+		return 0;
+	}
 
 	ret = esp_cache_msync(addr, size,
 			      ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_INVALIDATE |

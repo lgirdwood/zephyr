@@ -110,7 +110,7 @@
 };
 
 &usb_serial {
-	status = "okay";
+	status = "disabled";
 };
 
 &gpio0 {
@@ -264,6 +264,10 @@
 	status = "okay";
 };
 
-zephyr_udc0: &usb_otg {
+&usb_otg {
+	status = "disabled";
+};
+
+zephyr_udc0: &usb_otg_fs {
 	status = "okay";
 };

@@ -23,6 +23,8 @@ manifest:
       url-base: https://github.com/zephyrproject-rtos
     - name: babblesim
       url-base: https://github.com/BabbleSim
+    - name: lgirdwood
+      url-base: https://github.com/lgirdwood
 
   group-filter: [-babblesim, -optional, -testing]
 
@@ -172,7 +174,8 @@ manifest:
       groups:
         - hal
     - name: hal_espressif
-      revision: a67d46545def251403ad1aac4239776633c6afe7
+      remote: lgirdwood
+      revision: esp32p4-uac2
       path: modules/hal/espressif
       west-commands: west/west-commands.yml
       groups:

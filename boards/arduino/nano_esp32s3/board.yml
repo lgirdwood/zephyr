@@ -1,0 +1,7 @@
+board:
+  name: nano_esp32s3
+  full_name: Arduino Nano ESP32S3
+  vendor: arduino
+  socs:
+  - name: esp32s3
+
