@@ -438,7 +438,7 @@ static int dwc2_tx_fifo_write(const struct device *dev,
 		     USB_DWC2_DEPCTL_SETODDFR | USB_DWC2_DEPCTL_SETEVENFR |
 		     USB_DWC2_DEPCTL_SNAK | USB_DWC2_DEPCTL_CNAK);
 
-	if (is_iso && udc_device_speed(dev) == UDC_BUS_SPEED_FS) {
+	if (is_iso && dwc2_in_completer_mode(dev) && udc_device_speed(dev) == UDC_BUS_SPEED_FS) {
 		diepctl |= USB_DWC2_DEPCTL_SETD0PID;
 	} else if (!IS_ENABLED(CONFIG_UDC_DWC2_PTI) && is_iso && dwc2_in_buffer_dma_mode(dev)) {
 		bool is_odd = (udc_device_speed(dev) == UDC_BUS_SPEED_HS) ?
@@ -545,14 +545,17 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 
 	/* Clear NAK and set endpoint enable */
 	doepctl = sys_read32(doepctl_reg);
-	if (!dwc2_ep_is_iso(cfg) && cfg->addr != USB_CONTROL_EP_OUT && (doepctl & USB_DWC2_DEPCTL_EPENA)) {
+	if (dwc2_in_completer_mode(dev) && !dwc2_ep_is_iso(cfg) &&
+	    cfg->addr != USB_CONTROL_EP_OUT && (doepctl & USB_DWC2_DEPCTL_EPENA)) {
 		/* Endpoint is already armed in hardware, skip re-arming */
 		return;
 	}
-	/* Clear command/status bits before programming new command */
-	doepctl &= ~(USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_EPDIS |
-		     USB_DWC2_DEPCTL_SETODDFR | USB_DWC2_DEPCTL_SETEVENFR |
-		     USB_DWC2_DEPCTL_SNAK | USB_DWC2_DEPCTL_CNAK);
+	if (dwc2_in_completer_mode(dev)) {
+		/* Clear command/status bits before programming new command */
+		doepctl &= ~(USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_EPDIS |
+			     USB_DWC2_DEPCTL_SETODDFR | USB_DWC2_DEPCTL_SETEVENFR |
+			     USB_DWC2_DEPCTL_SNAK | USB_DWC2_DEPCTL_CNAK);
+	}
 	doepctl |= USB_DWC2_DEPCTL_EPENA;
 	if (cfg->addr == USB_CONTROL_EP_OUT) {
 		struct udc_buf_info *bi = udc_get_buf_info(buf);
@@ -574,12 +577,24 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 			return;
 		}
 
-		if (udc_device_speed(dev) == UDC_BUS_SPEED_FS) {
-			doepctl |= USB_DWC2_DEPCTL_SETD0PID;
+		if (dwc2_in_completer_mode(dev)) {
+			if (udc_device_speed(dev) == UDC_BUS_SPEED_FS) {
+				doepctl |= USB_DWC2_DEPCTL_SETD0PID;
+			} else if (!IS_ENABLED(CONFIG_UDC_DWC2_PTI)) {
+				uint32_t dsts = sys_read32((mem_addr_t)&base->dsts);
+				uint32_t soffn = usb_dwc2_get_dsts_soffn(dsts);
+				bool is_odd = (soffn >> 3) & 1;
+
+				if (is_odd) {
+					doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
+				} else {
+					doepctl |= USB_DWC2_DEPCTL_SETODDFR;
+				}
+			}
 		} else if (!IS_ENABLED(CONFIG_UDC_DWC2_PTI)) {
-			uint32_t dsts = sys_read32((mem_addr_t)&base->dsts);
-			uint32_t soffn = usb_dwc2_get_dsts_soffn(dsts);
-			bool is_odd = (soffn >> 3) & 1;
+			bool is_odd = (udc_device_speed(dev) == UDC_BUS_SPEED_HS) ?
+				      ((priv->sof_num >> 3) & 1) : (priv->sof_num & 1);
+			/* Set the Even/Odd (micro-)frame appropriately */
 			if (is_odd) {
 				doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
 			} else {
@@ -604,7 +619,7 @@ static void dwc2_prep_rx(const struct device *dev, struct net_buf *buf,
 
 	doeptsiz = usb_dwc2_set_doeptsizn_pktcnt(pktcnt) |
 		   usb_dwc2_set_doeptsizn_xfersize(xfersize);
-	if (dwc2_ep_is_iso(cfg)) {
+	if (dwc2_in_completer_mode(dev) && dwc2_ep_is_iso(cfg)) {
 		if (udc_device_speed(dev) == UDC_BUS_SPEED_HS) {
 			doeptsiz |= ((1 + addnl) << USB_DWC2_DOEPTSIZN_RXDPID_POS);
 		}
@@ -1058,10 +1073,8 @@ static int dwc2_set_dedicated_fifo(const struct device *dev,
 				   struct udc_ep_config *const cfg,
 				   uint32_t *const diepctl)
 {
-	struct udc_dwc2_data *const priv = udc_get_private(dev);
 	struct usb_dwc2_reg *const base = dwc2_get_base(dev);
 	const uint32_t addnl = USB_MPS_ADDITIONAL_TRANSACTIONS(cfg->mps);
-	uint8_t ep_idx = USB_EP_GET_IDX(cfg->addr);
 	uint32_t reqdep;
 	uint16_t start, depth;
 	uint8_t txfnum;
@@ -1075,6 +1088,9 @@ static int dwc2_set_dedicated_fifo(const struct device *dev,
 	}
 
 #if defined(CONFIG_SOC_SERIES_ESP32S3) || defined(CONFIG_SOC_SERIES_ESP32P4)
+	struct udc_dwc2_data *const priv = udc_get_private(dev);
+	uint8_t ep_idx = USB_EP_GET_IDX(cfg->addr);
+
 	if (priv->dynfifosizing) {
 #if defined(CONFIG_SOC_SERIES_ESP32S3)
 		/* ESP32-S3 Synopsys DWC2 SPRAM total: 200 words (800 bytes)
@@ -1336,7 +1352,7 @@ static void udc_dwc2_ep_disable(const struct device *dev,
 	}
 
 	if (USB_EP_DIR_IS_OUT(cfg->addr)) {
-		if (dwc2_ep_is_iso(cfg)) {
+		if (dwc2_in_completer_mode(dev) && dwc2_ep_is_iso(cfg)) {
 			if (dxepctl & USB_DWC2_DEPCTL_EPENA) {
 				dxepctl |= USB_DWC2_DEPCTL_EPDIS;
 			}
@@ -2547,7 +2563,8 @@ static inline void dwc2_handle_iepint(const struct device *dev)
 				/* Status stage enabled endpoint. NAK will be
 				 * cleared in STSPHSERCVD interrupt.
 				 */
-			} else if ((priv->ep_in_disable & BIT(n)) && (diepctl & USB_DWC2_DEPCTL_EPENA)) {
+			} else if ((dwc2_in_buffer_dma_mode(dev) || (priv->ep_in_disable & BIT(n))) &&
+				   (diepctl & USB_DWC2_DEPCTL_EPENA)) {
 				priv->ep_in_disable &= ~BIT(n);
 				diepctl &= ~USB_DWC2_DEPCTL_EPENA;
 				diepctl |= USB_DWC2_DEPCTL_EPDIS;
@@ -2605,19 +2622,26 @@ static inline void dwc2_handle_out_xfercompl(const struct device *dev,
 	uint32_t doeptsiz;
 	const bool is_iso = dwc2_ep_is_iso(ep_cfg);
 
-	if (!ep_cfg || !udc_ep_is_busy(ep_cfg)) {
+	if (dwc2_in_completer_mode(dev) && (!ep_cfg || !udc_ep_is_busy(ep_cfg))) {
 		return;
 	}
+
+	doeptsiz = sys_read32((mem_addr_t)&base->out_ep[ep_idx].doeptsiz);
 
 	buf = udc_buf_peek(ep_cfg);
 	if (!buf) {
-		udc_ep_set_busy(ep_cfg, false);
+		if (dwc2_in_completer_mode(dev)) {
+			udc_ep_set_busy(ep_cfg, false);
+		} else {
+			LOG_ERR("No buffer for ep 0x%02x", ep_cfg->addr);
+			udc_submit_event(dev, UDC_EVT_ERROR, -ENOBUFS);
+		}
 		return;
 	}
 
-	udc_ep_set_busy(ep_cfg, false);
-
-	doeptsiz = sys_read32((mem_addr_t)&base->out_ep[ep_idx].doeptsiz);
+	if (dwc2_in_completer_mode(dev)) {
+		udc_ep_set_busy(ep_cfg, false);
+	}
 
 	/* The original transfer size value is necessary here because controller
 	 * decreases the value for every byte stored.
@@ -2684,7 +2708,7 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 		/* Read and clear interrupt status */
 		doepint = sys_read32(doepint_reg);
 		status = doepint & doepmsk;
-		sys_write32(doepint, doepint_reg);
+		sys_write32(dwc2_in_completer_mode(dev) ? doepint : status, doepint_reg);
 
 		LOG_DBG("ep 0x%02x interrupt status: 0x%x", n, status);
 
@@ -2726,12 +2750,17 @@ static inline void dwc2_handle_oepint(const struct device *dev)
 		}
 
 		if (status & USB_DWC2_DOEPINT_XFERCOMPL) {
-			struct udc_ep_config *ep_cfg = udc_get_ep_cfg(dev, n);
-			if (ep_cfg && udc_ep_is_busy(ep_cfg)) {
-				if (n == 1) {
-					extern volatile uint32_t g_dwc2_xfercompl_ep1_cnt;
-					g_dwc2_xfercompl_ep1_cnt++;
+			if (dwc2_in_completer_mode(dev)) {
+				struct udc_ep_config *ep_cfg = udc_get_ep_cfg(dev, n);
+
+				if (ep_cfg && udc_ep_is_busy(ep_cfg)) {
+					if (n == 1) {
+						extern volatile uint32_t g_dwc2_xfercompl_ep1_cnt;
+						g_dwc2_xfercompl_ep1_cnt++;
+					}
+					dwc2_handle_out_xfercompl(dev, n);
 				}
+			} else {
 				dwc2_handle_out_xfercompl(dev, n);
 			}
 		}
@@ -2833,6 +2862,7 @@ static void dwc2_handle_incompisoout(const struct device *dev)
 		usb_dwc2_set_depctl_eptype(USB_DWC2_DEPCTL_EPTYPE_ISO) |
 		USB_DWC2_DEPCTL_USBACTEP;
 	uint32_t eps = (priv->iso_enabled & 0xFFFF0000UL) >> 16;
+	uint16_t rearm = 0;
 
 	while (eps) {
 		uint8_t i = find_lsb_set(eps) - 1;
@@ -2843,27 +2873,45 @@ static void dwc2_handle_incompisoout(const struct device *dev)
 
 		/* Check if endpoint didn't receive ISO OUT data */
 		if ((doepctl & mask) == val) {
-			if (i == 1) {
-				extern volatile uint32_t g_dwc2_incompisoout_cnt;
-				g_dwc2_incompisoout_cnt++;
-			}
-			/* Reset transfer size and packet count */
-			sys_write32(priv->rx_siz[i], (mem_addr_t)&base->out_ep[i].doeptsiz);
+			if (dwc2_in_completer_mode(dev)) {
+				if (i == 1) {
+					extern volatile uint32_t g_dwc2_incompisoout_cnt;
+					g_dwc2_incompisoout_cnt++;
+				}
+				/* Reset transfer size and packet count */
+				sys_write32(priv->rx_siz[i],
+					    (mem_addr_t)&base->out_ep[i].doeptsiz);
 
-			/* In Completer (slave) mode, toggle Even/Odd frame parity and re-arm */
-			doepctl &= ~(USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_EPDIS |
-				     USB_DWC2_DEPCTL_SETODDFR | USB_DWC2_DEPCTL_SETEVENFR |
-				     USB_DWC2_DEPCTL_SNAK | USB_DWC2_DEPCTL_CNAK);
-			doepctl |= USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_CNAK;
-			if (sys_read32(doepctl_reg) & USB_DWC2_DEPCTL_DPID) {
-				doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
+				/* In Completer (slave) mode, toggle Even/Odd frame parity and re-arm */
+				doepctl &= ~(USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_EPDIS |
+					     USB_DWC2_DEPCTL_SETODDFR | USB_DWC2_DEPCTL_SETEVENFR |
+					     USB_DWC2_DEPCTL_SNAK | USB_DWC2_DEPCTL_CNAK);
+				doepctl |= USB_DWC2_DEPCTL_EPENA | USB_DWC2_DEPCTL_CNAK;
+				if (sys_read32(doepctl_reg) & USB_DWC2_DEPCTL_DPID) {
+					doepctl |= USB_DWC2_DEPCTL_SETEVENFR;
+				} else {
+					doepctl |= USB_DWC2_DEPCTL_SETODDFR;
+				}
+				sys_write32(doepctl, doepctl_reg);
 			} else {
-				doepctl |= USB_DWC2_DEPCTL_SETODDFR;
+				struct udc_ep_config *cfg;
+
+				cfg = udc_get_ep_cfg(dev, i);
+				__ASSERT_NO_MSG(cfg && cfg->stat.enabled &&
+						dwc2_ep_is_iso(cfg));
+
+				udc_dwc2_ep_disable(dev, cfg, false, false);
+
+				rearm |= BIT(i);
 			}
-			sys_write32(doepctl, doepctl_reg);
 		}
 
 		eps &= ~BIT(i);
+	}
+
+	if (!dwc2_in_completer_mode(dev)) {
+		/* Mark endpoints to re-arm in EPDISBLD handler */
+		priv->iso_out_rearm = rearm;
 	}
 
 	sys_write32(USB_DWC2_GINTSTS_INCOMPISOOUT, gintsts_reg);
@@ -3031,13 +3079,17 @@ static void udc_dwc2_isr_handler(const struct device *dev)
 			dwc2_handle_oepint(dev);
 		}
 
-		if (int_status & USB_DWC2_GINTSTS_INCOMPISOIN) {
+		if ((dwc2_in_completer_mode(dev) ||
+		     (IS_ENABLED(CONFIG_UDC_ENABLE_SOF) && !IS_ENABLED(CONFIG_UDC_DWC2_PTI))) &&
+		    (int_status & USB_DWC2_GINTSTS_INCOMPISOIN)) {
 			extern volatile uint32_t g_dwc2_incompisoin_cnt;
 			g_dwc2_incompisoin_cnt++;
 			dwc2_handle_incompisoin(dev);
 		}
 
-		if (int_status & USB_DWC2_GINTSTS_INCOMPISOOUT) {
+		if ((dwc2_in_completer_mode(dev) ||
+		     (IS_ENABLED(CONFIG_UDC_ENABLE_SOF) && !IS_ENABLED(CONFIG_UDC_DWC2_PTI))) &&
+		    (int_status & USB_DWC2_GINTSTS_INCOMPISOOUT)) {
 			extern volatile uint32_t g_dwc2_incompisoout_cnt;
 			g_dwc2_incompisoout_cnt++;
 			dwc2_handle_incompisoout(dev);
@@ -3194,29 +3246,6 @@ static ALWAYS_INLINE void dwc2_thread_handler(void *const arg)
 
 	udc_lock_internal(dev, K_FOREVER);
 
-	if (evt & BIT(DWC2_DRV_EVT_XFER)) {
-		k_event_clear(&priv->drv_evt, BIT(DWC2_DRV_EVT_XFER));
-
-		if (!priv->hibernated) {
-			LOG_DBG("New transfer(s) in the queue");
-			eps = atomic_clear(&priv->xfer_new);
-		} else {
-			/* Events will be handled after hibernation exit */
-			eps = 0;
-		}
-
-		while (eps) {
-			ep = pull_next_ep_from_bitmap(&eps);
-			ep_cfg = udc_get_ep_cfg(dev, ep);
-
-			if (!udc_ep_is_busy(ep_cfg)) {
-				dwc2_handle_xfer_next(dev, ep_cfg);
-			} else {
-				LOG_DBG("ep 0x%02x busy", ep_cfg->addr);
-			}
-		}
-	}
-
 	if (evt & BIT(DWC2_DRV_EVT_EP_FINISHED)) {
 		k_event_clear(&priv->drv_evt, BIT(DWC2_DRV_EVT_EP_FINISHED));
 
@@ -3238,6 +3267,29 @@ static ALWAYS_INLINE void dwc2_thread_handler(void *const arg)
 				LOG_DBG("DOUT event ep 0x%02x", ep_cfg->addr);
 				dwc2_handle_evt_dout(dev, ep_cfg);
 			}
+
+			if (!udc_ep_is_busy(ep_cfg)) {
+				dwc2_handle_xfer_next(dev, ep_cfg);
+			} else {
+				LOG_DBG("ep 0x%02x busy", ep_cfg->addr);
+			}
+		}
+	}
+
+	if (evt & BIT(DWC2_DRV_EVT_XFER)) {
+		k_event_clear(&priv->drv_evt, BIT(DWC2_DRV_EVT_XFER));
+
+		if (!priv->hibernated) {
+			LOG_DBG("New transfer(s) in the queue");
+			eps = atomic_clear(&priv->xfer_new);
+		} else {
+			/* Events will be handled after hibernation exit */
+			eps = 0;
+		}
+
+		while (eps) {
+			ep = pull_next_ep_from_bitmap(&eps);
+			ep_cfg = udc_get_ep_cfg(dev, ep);
 
 			if (!udc_ep_is_busy(ep_cfg)) {
 				dwc2_handle_xfer_next(dev, ep_cfg);

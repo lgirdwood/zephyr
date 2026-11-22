@@ -726,9 +726,10 @@ static inline int dma_mcux_edma_validate_cfg(const struct device *dev,
 	/* A single block is split below; a chain of them is not. */
 	if (config->block_count > 1U) {
 		uint32_t burst = MAX(config->source_burst_length, 1U);
+		struct dma_block_config *blk = block_config;
 
-		for (struct dma_block_config *blk = block_config; blk != NULL;
-		     blk = blk->next_block) {
+		for (uint32_t i = 0; i < config->block_count && blk != NULL;
+		     i++, blk = blk->next_block) {
 			if (DIV_ROUND_UP(blk->block_size, burst) > EDMA_MAX_MAJOR_LOOP) {
 				LOG_ERR("block of %u bytes needs %u major loops, %u is the "
 					"most a descriptor holds",

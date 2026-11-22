@@ -220,7 +220,23 @@ static int sai_config_set(const struct device *dev,
 		return -EINVAL;
 	}
 
-	bespoke = bespoke_data;
+	struct sai_bespoke_config default_bespoke = { 0 };
+
+	if (bespoke_data && size >= sizeof(*bespoke)) {
+		bespoke = bespoke_data;
+	} else {
+		uint32_t rate = cfg->rate ? cfg->rate : 48000U;
+		uint32_t channels = cfg->channels ? cfg->channels : 2U;
+
+		default_bespoke.mclk_rate = 12288000U;
+		default_bespoke.fsync_rate = rate;
+		default_bespoke.tdm_slots = channels;
+		default_bespoke.tdm_slot_width = 16U;
+		default_bespoke.bclk_rate = rate * channels * 16U;
+		default_bespoke.rx_slots = (1U << channels) - 1U;
+		default_bespoke.tx_slots = (1U << channels) - 1U;
+		bespoke = &default_bespoke;
+	}
 	data = dev->data;
 	sai_cfg = dev->config;
 	rx_config = &data->rx_config;
